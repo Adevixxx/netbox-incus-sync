@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+eggs/
+*.manifest
+*.spec
+
+# Virtual environments
+venv/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Django
+*.log
+local_settings.py
+db.sqlite3
+
+# Migrations générées
+# migrations/
+
+# Certificats et secrets (IMPORTANT!)
+*.key
+*.crt
+*.pem
+*.p12
+
+# OS
+.DS_Store
+Thumbs.db
