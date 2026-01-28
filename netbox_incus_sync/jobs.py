@@ -25,11 +25,20 @@ class SyncIncusJob(JobRunner):
         total_synced = 0
         
         for host in hosts:
-            self.logger.info(f"Traitement de l'hôte : {host.name}")
+            self.logger.info(f"Traitement de l'hôte : {host.name} ({host.get_connection_type_display()})")
             
             try:
-                # Instanciation du client pour cet hôte
-                client = IncusClient(socket_url=host.socket_path)
+                # Instanciation du client avec l'objet host complet
+                client = IncusClient(host=host)
+                
+                # Test de connexion
+                success, message = client.test_connection()
+                if not success:
+                    self.logger.error(f"  Échec de connexion: {message}")
+                    continue
+                    
+                self.logger.info(f"  {message}")
+                
                 instances = client.get_instances()
                 self.logger.info(f"  > {len(instances)} instances trouvées.")
                 

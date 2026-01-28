@@ -1,0 +1,105 @@
+{% extends 'generic/object.html' %}
+{% load helpers %}
+{% load plugins %}
+
+{% block breadcrumbs %}
+<li class="breadcrumb-item">
+    <a href="{% url 'plugins:netbox_incus_sync:incushost_list' %}">Incus Hosts</a>
+</li>
+<li class="breadcrumb-item active">{{ object.name }}</li>
+{% endblock breadcrumbs %}
+
+{% block content %}
+<div class="row mb-3">
+    <div class="col-md-6">
+        <div class="card">
+            <h5 class="card-header">General</h5>
+            <div class="card-body">
+                <table class="table table-hover attr-table">
+                    <tr>
+                        <th scope="row">Name</th>
+                        <td>{{ object.name }}</td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Connection Type</th>
+                        <td>{{ object.get_connection_type_display }}</td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Connection URL</th>
+                        <td><code>{{ object.connection_url }}</code></td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Enabled</th>
+                        <td>
+                            {% if object.enabled %}
+                                <span class="badge bg-success">Yes</span>
+                            {% else %}
+                                <span class="badge bg-danger">No</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card">
+            <h5 class="card-header">NetBox Association</h5>
+            <div class="card-body">
+                <table class="table table-hover attr-table">
+                    <tr>
+                        <th scope="row">Default Cluster</th>
+                        <td>
+                            {% if object.default_cluster %}
+                                <a href="{{ object.default_cluster.get_absolute_url }}">
+                                    {{ object.default_cluster }}
+                                </a>
+                            {% else %}
+                                <span class="text-muted">Not defined</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+        {% if object.connection_type == 'https' %}
+        <div class="card mt-3">
+            <h5 class="card-header">TLS Certificates</h5>
+            <div class="card-body">
+                <table class="table table-hover attr-table">
+                    <tr>
+                        <th scope="row">Client Certificate</th>
+                        <td><code>{{ object.client_cert_path }}</code></td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Private Key</th>
+                        <td><code>{{ object.client_key_path }}</code></td>
+                    </tr>
+                    <tr>
+                        <th scope="row">CA Certificate</th>
+                        <td>
+                            {% if object.ca_cert_path %}
+                                <code>{{ object.ca_cert_path }}</code>
+                            {% else %}
+                                <span class="text-muted">Not defined</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Verify SSL</th>
+                        <td>
+                            {% if object.verify_ssl %}
+                                <span class="badge bg-success">Yes</span>
+                            {% else %}
+                                <span class="badge bg-warning">No</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+        {% endif %}
+        {% include 'inc/panels/tags.html' %}
+    </div>
+</div>
+{% endblock content %}

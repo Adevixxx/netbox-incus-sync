@@ -5,25 +5,31 @@ from .models import IncusHost
 
 class IncusHostTable(NetBoxTable):
     """Table d'affichage des hôtes Incus."""
-    
+
     pk = ToggleColumn()
-    
+
     name = tables.Column(
         linkify=True,
         verbose_name='Nom'
     )
-    
-    socket_path = tables.Column(
-        verbose_name='Chemin du socket'
+
+    connection_type = ChoiceFieldColumn(
+        verbose_name='Type'
     )
-    
+
+    connection_info = tables.Column(
+        accessor='connection_url',
+        verbose_name='Connexion',
+        orderable=False
+    )
+
     enabled = tables.BooleanColumn(
         verbose_name='Activé'
     )
-    
+
     default_cluster = tables.Column(
         linkify=True,
-        verbose_name='Cluster par défaut'
+        verbose_name='Cluster'
     )
 
     class Meta(NetBoxTable.Meta):
@@ -31,7 +37,8 @@ class IncusHostTable(NetBoxTable):
         fields = (
             'pk',
             'name',
-            'socket_path',
+            'connection_type',
+            'connection_info',
             'enabled',
             'default_cluster',
             'tags',
@@ -39,7 +46,8 @@ class IncusHostTable(NetBoxTable):
         default_columns = (
             'pk',
             'name',
-            'socket_path',
+            'connection_type',
+            'connection_info',
             'enabled',
             'default_cluster',
         )
