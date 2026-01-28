@@ -1,9 +1,12 @@
 """
 Service de synchronisation réseau des instances Incus vers NetBox.
+
+Compatible NetBox 4.2+ où les adresses MAC sont des objets séparés.
 """
 
 from virtualization.models import VMInterface
 from ipam.models import IPAddress
+from dcim.models import MACAddress
 from django.contrib.contenttypes.models import ContentType
 
 
@@ -55,6 +58,10 @@ class NetworkSyncService:
         if not network_state:
             return 0, 0
         
+        # Pour tracker les IPs primaires candidates
+        primary_ip4_candidate = None
+        primary_ip6_candidate = None
+        
         # Parcourir les interfaces
         current_iface_names = set()
         
@@ -72,9 +79,23 @@ class NetworkSyncService:
             if iface_created:
                 self.log('info', f"    Interface créée: {iface_name}")
             
-            # Sync des IPs
-            ip_count = self._sync_interface_ips(interface, iface_data, vm.name)
+            # Sync de l'adresse MAC (NetBox 4.2+)
+            hwaddr = iface_data.get('hwaddr', '')
+            if hwaddr and hwaddr != '00:00:00:00:00:00':
+                self._sync_mac_address(interface, hwaddr)
+            
+            # Sync des IPs et récupérer les candidates pour IP primaire
+            ip4, ip6, ip_count = self._sync_interface_ips(interface, iface_data, vm.name)
             ips_synced += ip_count
+            
+            # Garder la première IP globale trouvée comme candidate
+            if ip4 and not primary_ip4_candidate:
+                primary_ip4_candidate = ip4
+            if ip6 and not primary_ip6_candidate:
+                primary_ip6_candidate = ip6
+        
+        # Définir les IPs primaires de la VM
+        self._set_primary_ips(vm, primary_ip4_candidate, primary_ip6_candidate)
         
         # Nettoyer les interfaces obsolètes
         self._cleanup_old_interfaces(vm, current_iface_names)
@@ -114,10 +135,12 @@ class NetworkSyncService:
         """
         Synchronise une interface réseau.
         
+        Note: Dans NetBox 4.2+, mac_address n'est plus un champ direct.
+        Il faut créer un objet MACAddress séparé.
+        
         Returns:
             tuple: (interface, created)
         """
-        hwaddr = iface_data.get('hwaddr', '')
         iface_state = iface_data.get('state', 'down')
         mtu = iface_data.get('mtu', None)
         
@@ -125,10 +148,6 @@ class NetworkSyncService:
             'enabled': iface_state == 'up',
             'description': f"Synced from Incus - State: {iface_state}",
         }
-        
-        # MAC address (seulement si valide)
-        if hwaddr and hwaddr != '00:00:00:00:00:00':
-            defaults['mac_address'] = hwaddr
         
         # MTU si disponible
         if mtu:
@@ -142,14 +161,56 @@ class NetworkSyncService:
         
         return interface, created
     
+    def _sync_mac_address(self, interface, hwaddr):
+        """
+        Synchronise l'adresse MAC d'une interface (NetBox 4.2+).
+        
+        Dans NetBox 4.2+, les adresses MAC sont des objets séparés
+        liés aux interfaces via une relation générique.
+        
+        Args:
+            interface: Instance VMInterface
+            hwaddr: Adresse MAC (string)
+        """
+        try:
+            # Récupérer ou créer l'adresse MAC
+            mac_obj, created = MACAddress.objects.get_or_create(
+                mac_address=hwaddr.upper(),
+                defaults={
+                    'assigned_object_type': self.vminterface_content_type,
+                    'assigned_object_id': interface.pk,
+                    'description': f"Synced from Incus - {interface.virtual_machine.name}",
+                }
+            )
+            
+            # Si l'adresse MAC existe déjà mais n'est pas assignée à cette interface
+            if not created:
+                if (mac_obj.assigned_object_id != interface.pk or 
+                    mac_obj.assigned_object_type != self.vminterface_content_type):
+                    mac_obj.assigned_object_type = self.vminterface_content_type
+                    mac_obj.assigned_object_id = interface.pk
+                    mac_obj.save()
+            
+            if created:
+                self.log('info', f"    MAC créée: {hwaddr} sur {interface.name}")
+                
+        except Exception as e:
+            self.log('warning', f"    Erreur lors de la sync MAC {hwaddr}: {e}")
+    
     def _sync_interface_ips(self, interface, iface_data, vm_name):
         """
         Synchronise les adresses IP d'une interface.
         
         Returns:
-            int: Nombre d'IPs synchronisées
+            tuple: (first_ipv4, first_ipv6, count)
+                - first_ipv4: Première IPv4 globale trouvée (ou None)
+                - first_ipv6: Première IPv6 globale trouvée (ou None)
+                - count: Nombre total d'IPs synchronisées
         """
         ips_synced = 0
+        first_ipv4 = None
+        first_ipv6 = None
+        
         addresses = iface_data.get('addresses', [])
         
         for addr_info in addresses:
@@ -172,10 +233,17 @@ class NetworkSyncService:
                 ip_obj = self._sync_ip_address(ip_cidr, interface, vm_name)
                 if ip_obj:
                     ips_synced += 1
+                    
+                    # Garder la première IP de chaque famille comme candidate primaire
+                    if ip_family == 'inet' and first_ipv4 is None:
+                        first_ipv4 = ip_obj
+                    elif ip_family == 'inet6' and first_ipv6 is None:
+                        first_ipv6 = ip_obj
+                        
             except Exception as e:
                 self.log('warning', f"    Erreur lors de la sync IP {ip_cidr}: {e}")
         
-        return ips_synced
+        return first_ipv4, first_ipv6, ips_synced
     
     def _sync_ip_address(self, ip_cidr, interface, vm_name):
         """
@@ -202,6 +270,32 @@ class NetworkSyncService:
             self.log('info', f"    IP créée: {ip_cidr} sur {interface.name}")
         
         return ip_obj
+    
+    def _set_primary_ips(self, vm, ip4, ip6):
+        """
+        Définit les IPs primaires de la VM.
+        
+        Args:
+            vm: Instance VirtualMachine
+            ip4: IPAddress IPv4 candidate (ou None)
+            ip6: IPAddress IPv6 candidate (ou None)
+        """
+        updated = False
+        
+        # Définir IPv4 primaire si pas déjà définie ou si différente
+        if ip4 and vm.primary_ip4_id != ip4.pk:
+            vm.primary_ip4 = ip4
+            updated = True
+            self.log('info', f"    IP primaire v4: {ip4.address}")
+        
+        # Définir IPv6 primaire si pas déjà définie ou si différente
+        if ip6 and vm.primary_ip6_id != ip6.pk:
+            vm.primary_ip6 = ip6
+            updated = True
+            self.log('info', f"    IP primaire v6: {ip6.address}")
+        
+        if updated:
+            vm.save()
     
     def _cleanup_old_interfaces(self, vm, current_iface_names):
         """
