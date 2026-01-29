@@ -9,7 +9,8 @@ from netbox.jobs import JobRunner
 
 from .incus_client import IncusClient
 from .models import IncusHost
-from .services import InstanceSyncService, NetworkSyncService
+from .services import InstanceSyncService, NetworkSyncService, DiskSyncService
+from .custom_fields import ensure_custom_fields_exist
 
 
 class SyncIncusJob(JobRunner):
@@ -20,6 +21,7 @@ class SyncIncusJob(JobRunner):
     - Instances (VMs/conteneurs)
     - Interfaces réseau
     - Adresses IP
+    - Disques virtuels
     """
     
     class Meta:
@@ -27,6 +29,9 @@ class SyncIncusJob(JobRunner):
 
     def run(self, *args, **kwargs):
         self.logger.info("Initialisation de la synchronisation Incus...")
+        
+        # Créer les Custom Fields si nécessaire
+        ensure_custom_fields_exist(logger=self.logger)
         
         # Récupération des hôtes configurés
         hosts = IncusHost.objects.filter(enabled=True)
@@ -38,6 +43,7 @@ class SyncIncusJob(JobRunner):
         # Initialiser les services
         instance_service = InstanceSyncService(logger=self.logger)
         network_service = NetworkSyncService(logger=self.logger)
+        disk_service = DiskSyncService(logger=self.logger)
         
         # Préparer les tags
         instance_service.setup()
@@ -49,20 +55,22 @@ class SyncIncusJob(JobRunner):
             'instances_removed': 0,
             'interfaces_synced': 0,
             'ips_synced': 0,
+            'disks_synced': 0,
         }
         
         # Traiter chaque hôte
         for host in hosts:
-            self._process_host(host, instance_service, network_service, stats)
+            self._process_host(host, instance_service, network_service, disk_service, stats)
 
         # Résumé
         self.logger.info(
             f"Synchronisation terminée. "
             f"Instances: +{stats['instances_created']} ~{stats['instances_updated']} -{stats['instances_removed']} | "
-            f"Interfaces: {stats['interfaces_synced']} | IPs: {stats['ips_synced']}"
+            f"Interfaces: {stats['interfaces_synced']} | IPs: {stats['ips_synced']} | "
+            f"Disques: {stats['disks_synced']}"
         )
 
-    def _process_host(self, host, instance_service, network_service, stats):
+    def _process_host(self, host, instance_service, network_service, disk_service, stats):
         """
         Traite un hôte Incus.
         
@@ -70,6 +78,7 @@ class SyncIncusJob(JobRunner):
             host: Instance IncusHost
             instance_service: Service de sync des instances
             network_service: Service de sync réseau
+            disk_service: Service de sync des disques
             stats: Dict des statistiques à mettre à jour
         """
         self.logger.info(f"Traitement de l'hôte : {host.name} ({host.get_connection_type_display()})")
@@ -121,6 +130,12 @@ class SyncIncusJob(JobRunner):
                     )
                     stats['interfaces_synced'] += iface_count
                     stats['ips_synced'] += ip_count
+                    
+                    # Sync des disques
+                    disk_count = disk_service.sync_instance_disks(
+                        vm, instance_data, client
+                    )
+                    stats['disks_synced'] += disk_count
             
             # Gérer les suppressions
             deleted = instance_service.handle_deletions(cluster, incus_instance_names)

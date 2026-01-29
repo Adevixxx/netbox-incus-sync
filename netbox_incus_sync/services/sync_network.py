@@ -58,6 +58,11 @@ class NetworkSyncService:
         if not network_state:
             return 0, 0
         
+        # Récupérer les devices pour les infos de connexion (bridge, parent)
+        devices = instance_data.get('expanded_devices', {})
+        if not devices:
+            devices = instance_data.get('devices', {})
+        
         # Pour tracker les IPs primaires candidates
         primary_ip4_candidate = None
         primary_ip6_candidate = None
@@ -72,14 +77,19 @@ class NetworkSyncService:
             
             current_iface_names.add(iface_name)
             
+            # Récupérer les infos du device correspondant
+            device_config = devices.get(iface_name, {})
+            
             # Sync de l'interface
-            interface, iface_created = self._sync_interface(vm, iface_name, iface_data)
+            interface, iface_created = self._sync_interface(
+                vm, iface_name, iface_data, device_config
+            )
             interfaces_synced += 1
             
             if iface_created:
                 self.log('info', f"    Interface créée: {iface_name}")
             
-            # Sync de l'adresse MAC (NetBox 4.2+)
+            # Sync de l'adresse MAC (NetBox 4.2+) et définir comme primaire
             hwaddr = iface_data.get('hwaddr', '')
             if hwaddr and hwaddr != '00:00:00:00:00:00':
                 self._sync_mac_address(interface, hwaddr)
@@ -131,22 +141,40 @@ class NetworkSyncService:
         
         return None
     
-    def _sync_interface(self, vm, iface_name, iface_data):
+    def _sync_interface(self, vm, iface_name, iface_data, device_config):
         """
         Synchronise une interface réseau.
         
         Note: Dans NetBox 4.2+, mac_address n'est plus un champ direct.
         Il faut créer un objet MACAddress séparé.
         
+        Args:
+            vm: VirtualMachine NetBox
+            iface_name: Nom de l'interface (eth0, etc.)
+            iface_data: Données de l'état réseau depuis Incus
+            device_config: Configuration du device depuis expanded_devices
+        
         Returns:
             tuple: (interface, created)
         """
         iface_state = iface_data.get('state', 'down')
         mtu = iface_data.get('mtu', None)
+        host_name = iface_data.get('host_name', '')  # vethXXX côté hôte
+        
+        # Infos de connexion depuis device_config
+        network = device_config.get('network', '')  # Bridge managé (incusbr0)
+        parent = device_config.get('parent', '')    # Interface parente directe
+        nictype = device_config.get('nictype', '')  # bridged, macvlan, etc.
+        
+        # Le bridge effectif est soit 'network' soit 'parent'
+        bridge = network or parent
+        
+        # Construire une description simplifiée (les détails sont dans les custom fields)
+        description = f"Synced from Incus | State: {iface_state}"
         
         defaults = {
             'enabled': iface_state == 'up',
-            'description': f"Synced from Incus - State: {iface_state}",
+            'description': description,
         }
         
         # MTU si disponible
@@ -159,7 +187,40 @@ class NetworkSyncService:
             defaults=defaults
         )
         
+        # Mettre à jour les Custom Fields
+        self._update_interface_custom_fields(interface, bridge, host_name, nictype)
+        
         return interface, created
+    
+    def _update_interface_custom_fields(self, interface, bridge, host_name, nictype):
+        """
+        Met à jour les Custom Fields de l'interface.
+        
+        Args:
+            interface: VMInterface NetBox
+            bridge: Nom du bridge/network Incus
+            host_name: Interface veth côté hôte
+            nictype: Type de NIC
+        """
+        updated = False
+        
+        # Incus Bridge
+        if bridge and interface.custom_field_data.get('incus_bridge') != bridge:
+            interface.custom_field_data['incus_bridge'] = bridge
+            updated = True
+        
+        # Host Interface (veth)
+        if host_name and interface.custom_field_data.get('incus_host_interface') != host_name:
+            interface.custom_field_data['incus_host_interface'] = host_name
+            updated = True
+        
+        # NIC Type
+        if nictype and interface.custom_field_data.get('incus_nic_type') != nictype:
+            interface.custom_field_data['incus_nic_type'] = nictype
+            updated = True
+        
+        if updated:
+            interface.save()
     
     def _sync_mac_address(self, interface, hwaddr):
         """
@@ -167,15 +228,19 @@ class NetworkSyncService:
         
         Dans NetBox 4.2+, les adresses MAC sont des objets séparés
         liés aux interfaces via une relation générique.
+        Cette méthode crée la MAC et la définit comme primaire.
         
         Args:
             interface: Instance VMInterface
             hwaddr: Adresse MAC (string)
         """
         try:
+            # Normaliser l'adresse MAC (majuscules)
+            hwaddr_normalized = hwaddr.upper()
+            
             # Récupérer ou créer l'adresse MAC
             mac_obj, created = MACAddress.objects.get_or_create(
-                mac_address=hwaddr.upper(),
+                mac_address=hwaddr_normalized,
                 defaults={
                     'assigned_object_type': self.vminterface_content_type,
                     'assigned_object_id': interface.pk,
@@ -191,8 +256,17 @@ class NetworkSyncService:
                     mac_obj.assigned_object_id = interface.pk
                     mac_obj.save()
             
-            if created:
-                self.log('info', f"    MAC créée: {hwaddr} sur {interface.name}")
+            # Définir cette MAC comme adresse primaire de l'interface
+            # Dans NetBox 4.2+, c'est le champ primary_mac_address
+            if interface.primary_mac_address_id != mac_obj.pk:
+                interface.primary_mac_address = mac_obj
+                interface.save()
+                if created:
+                    self.log('info', f"    MAC créée et définie comme primaire: {hwaddr_normalized}")
+                else:
+                    self.log('info', f"    MAC définie comme primaire: {hwaddr_normalized}")
+            elif created:
+                self.log('info', f"    MAC créée: {hwaddr_normalized}")
                 
         except Exception as e:
             self.log('warning', f"    Erreur lors de la sync MAC {hwaddr}: {e}")

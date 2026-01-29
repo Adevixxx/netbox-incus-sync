@@ -190,6 +190,29 @@ class IncusClient:
             return data.get('metadata', [])
         return []
 
+    def get_storage_volume(self, pool, volume_type, volume_name):
+        """
+        Récupère les informations d'un volume de stockage.
+        
+        Args:
+            pool: Nom du pool de stockage (ex: 'default')
+            volume_type: Type de volume ('container', 'virtual-machine', 'custom', 'image')
+            volume_name: Nom du volume
+        
+        Returns:
+            dict: Informations du volume ou None
+        """
+        try:
+            data = self._request(
+                'GET', 
+                f'/1.0/storage-pools/{pool}/volumes/{volume_type}/{volume_name}'
+            )
+            if data.get('type') == 'sync':
+                return data.get('metadata')
+        except Exception as e:
+            logger.debug(f"Volume {volume_type}/{volume_name} non trouvé dans {pool}: {e}")
+        return None
+
     def test_connection(self):
         """
         Teste la connexion au serveur Incus.
