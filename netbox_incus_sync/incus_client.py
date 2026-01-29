@@ -169,6 +169,46 @@ class IncusClient:
             return data.get('metadata')
         return None
 
+    def get_instance_logs(self, name):
+        """
+        Récupère la liste des fichiers de logs d'une instance.
+        
+        Args:
+            name: Nom de l'instance
+        
+        Returns:
+            list: Liste des noms de fichiers de logs
+        """
+        try:
+            data = self._request('GET', f'/1.0/instances/{name}/logs')
+            if data.get('type') == 'sync':
+                # Les logs sont retournés comme des URLs, on extrait les noms
+                logs = data.get('metadata', [])
+                return [log.split('/')[-1] for log in logs]
+        except Exception as e:
+            logger.debug(f"Impossible de récupérer les logs de {name}: {e}")
+        return []
+
+    def get_instance_log_content(self, name, log_file):
+        """
+        Récupère le contenu d'un fichier de log d'une instance.
+        
+        Args:
+            name: Nom de l'instance
+            log_file: Nom du fichier de log (ex: 'lxc.log')
+        
+        Returns:
+            str: Contenu du fichier de log
+        """
+        try:
+            url = f"{self.base_url}/1.0/instances/{name}/logs/{log_file}"
+            response = self.session.get(url, timeout=30)
+            response.raise_for_status()
+            return response.text
+        except Exception as e:
+            logger.debug(f"Impossible de lire le log {log_file} de {name}: {e}")
+        return None
+
     def get_server_info(self):
         """Récupère les informations du serveur Incus."""
         data = self._request('GET', '/1.0')
@@ -211,6 +251,60 @@ class IncusClient:
                 return data.get('metadata')
         except Exception as e:
             logger.debug(f"Volume {volume_type}/{volume_name} non trouvé dans {pool}: {e}")
+        return None
+
+    def get_operations(self, recursion=1):
+        """
+        Récupère la liste des opérations (historique des actions).
+        
+        Les opérations incluent les événements lifecycle des instances :
+        - Creating/Starting/Stopping/Deleting instances
+        - Snapshots
+        - Backups
+        - Migrations
+        
+        Args:
+            recursion: Niveau de détail (0=IDs, 1=détails complets)
+        
+        Returns:
+            list: Liste des opérations
+        """
+        try:
+            data = self._request('GET', f'/1.0/operations?recursion={recursion}')
+            if data.get('type') == 'sync':
+                metadata = data.get('metadata', {})
+                
+                # Les opérations sont groupées par statut: running, success, failure
+                all_operations = []
+                
+                if isinstance(metadata, dict):
+                    for status, ops in metadata.items():
+                        if isinstance(ops, list):
+                            all_operations.extend(ops)
+                elif isinstance(metadata, list):
+                    all_operations = metadata
+                
+                return all_operations
+        except Exception as e:
+            logger.debug(f"Impossible de récupérer les opérations: {e}")
+        return []
+
+    def get_operation(self, operation_id):
+        """
+        Récupère les détails d'une opération spécifique.
+        
+        Args:
+            operation_id: UUID de l'opération
+        
+        Returns:
+            dict: Détails de l'opération ou None
+        """
+        try:
+            data = self._request('GET', f'/1.0/operations/{operation_id}')
+            if data.get('type') == 'sync':
+                return data.get('metadata')
+        except Exception as e:
+            logger.debug(f"Opération {operation_id} non trouvée: {e}")
         return None
 
     def test_connection(self):

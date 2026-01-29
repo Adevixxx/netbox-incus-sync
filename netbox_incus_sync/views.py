@@ -7,7 +7,7 @@ from utilities.views import register_model_view
 from .models import IncusHost
 from .forms import IncusHostForm
 from .tables import IncusHostTable
-from .jobs import SyncIncusJob
+from .jobs import SyncIncusJob, SyncEventsJob
 
 
 # ============================================
@@ -46,13 +46,22 @@ class IncusHostBulkDeleteView(generic.BulkDeleteView):
 
 
 # ============================================
-# Vue de synchronisation manuelle
+# Vues de synchronisation
 # ============================================
 
 class IncusSyncView(View):
-    """Lance la synchronisation Incus manuellement."""
+    """Lance la synchronisation complète Incus (instances, réseau, disques, événements)."""
     
     def get(self, request):
         job = SyncIncusJob.enqueue()
-        messages.success(request, f"Synchronisation Incus lancée (Job #{job.pk})")
+        messages.success(request, f"Synchronisation complète Incus lancée (Job #{job.pk})")
+        return redirect('plugins:netbox_incus_sync:incushost_list')
+
+
+class IncusSyncEventsView(View):
+    """Lance la synchronisation des événements Incus uniquement."""
+    
+    def get(self, request):
+        job = SyncEventsJob.enqueue()
+        messages.success(request, f"Synchronisation des événements Incus lancée (Job #{job.pk})")
         return redirect('plugins:netbox_incus_sync:incushost_list')

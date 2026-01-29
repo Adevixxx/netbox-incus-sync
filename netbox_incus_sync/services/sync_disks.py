@@ -107,8 +107,11 @@ class DiskSyncService:
             client=client
         )
         
-        # Construire la description
-        description = self._build_description(disk_name, path, pool, source)
+        # Déterminer le type de disque
+        disk_type = 'root' if disk_name == 'root' or path == '/' else 'data'
+        
+        # Description simplifiée (les détails sont dans les custom fields)
+        description = f"Synced from Incus"
         
         # Créer ou mettre à jour le disque
         defaults = {
@@ -122,7 +125,50 @@ class DiskSyncService:
             defaults=defaults
         )
         
+        # Mettre à jour les Custom Fields
+        self._update_disk_custom_fields(disk, path, pool, source, disk_type)
+        
         return disk, created
+    
+    def _update_disk_custom_fields(self, disk, path, pool, source, disk_type):
+        """
+        Met à jour les Custom Fields du disque.
+        
+        Args:
+            disk: VirtualDisk NetBox
+            path: Point de montage
+            pool: Nom du pool de stockage
+            source: Nom du volume source (pour volumes additionnels)
+            disk_type: Type de disque (root, data)
+        """
+        updated = False
+        
+        # Mount Path
+        if path and disk.custom_field_data.get('incus_mount_path') != path:
+            disk.custom_field_data['incus_mount_path'] = path
+            updated = True
+        
+        # Storage Pool
+        if pool and disk.custom_field_data.get('incus_storage_pool') != pool:
+            disk.custom_field_data['incus_storage_pool'] = pool
+            updated = True
+        
+        # Volume Source (seulement si défini)
+        if source and disk.custom_field_data.get('incus_volume_source') != source:
+            disk.custom_field_data['incus_volume_source'] = source
+            updated = True
+        elif not source and 'incus_volume_source' in disk.custom_field_data:
+            # Retirer le champ si plus de source
+            del disk.custom_field_data['incus_volume_source']
+            updated = True
+        
+        # Disk Type
+        if disk_type and disk.custom_field_data.get('incus_disk_type') != disk_type:
+            disk.custom_field_data['incus_disk_type'] = disk_type
+            updated = True
+        
+        if updated:
+            disk.save()
     
     def _get_disk_size(self, size_raw, pool, source, disk_name, vm_name, client):
         """
@@ -209,29 +255,6 @@ class DiskSyncService:
             self.log('debug', f"    Usage disque non disponible pour {instance_name}: {e}")
         
         return None
-    
-    def _build_description(self, disk_name, path, pool, source):
-        """
-        Construit la description du disque.
-        
-        Returns:
-            str: Description formatée
-        """
-        parts = [f"Synced from Incus"]
-        
-        if path:
-            parts.append(f"Mount: {path}")
-        
-        if pool:
-            parts.append(f"Pool: {pool}")
-        
-        if source:
-            parts.append(f"Source: {source}")
-        
-        if disk_name == 'root':
-            parts.append("(System disk)")
-        
-        return " | ".join(parts)
     
     def _cleanup_old_disks(self, vm, current_disk_names):
         """

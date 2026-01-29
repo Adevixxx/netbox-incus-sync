@@ -9,7 +9,7 @@ from netbox.jobs import JobRunner
 
 from .incus_client import IncusClient
 from .models import IncusHost
-from .services import InstanceSyncService, NetworkSyncService, DiskSyncService
+from .services import InstanceSyncService, NetworkSyncService, DiskSyncService, EventSyncService
 from .custom_fields import ensure_custom_fields_exist
 
 
@@ -22,6 +22,7 @@ class SyncIncusJob(JobRunner):
     - Interfaces réseau
     - Adresses IP
     - Disques virtuels
+    - Événements (vers Journal Entries)
     """
     
     class Meta:
@@ -44,6 +45,7 @@ class SyncIncusJob(JobRunner):
         instance_service = InstanceSyncService(logger=self.logger)
         network_service = NetworkSyncService(logger=self.logger)
         disk_service = DiskSyncService(logger=self.logger)
+        event_service = EventSyncService(logger=self.logger)
         
         # Préparer les tags
         instance_service.setup()
@@ -56,21 +58,29 @@ class SyncIncusJob(JobRunner):
             'interfaces_synced': 0,
             'ips_synced': 0,
             'disks_synced': 0,
+            'events_synced': 0,
         }
         
         # Traiter chaque hôte
         for host in hosts:
-            self._process_host(host, instance_service, network_service, disk_service, stats)
+            self._process_host(
+                host, 
+                instance_service, 
+                network_service, 
+                disk_service, 
+                event_service,
+                stats
+            )
 
         # Résumé
         self.logger.info(
             f"Synchronisation terminée. "
             f"Instances: +{stats['instances_created']} ~{stats['instances_updated']} -{stats['instances_removed']} | "
             f"Interfaces: {stats['interfaces_synced']} | IPs: {stats['ips_synced']} | "
-            f"Disques: {stats['disks_synced']}"
+            f"Disques: {stats['disks_synced']} | Events: {stats['events_synced']}"
         )
 
-    def _process_host(self, host, instance_service, network_service, disk_service, stats):
+    def _process_host(self, host, instance_service, network_service, disk_service, event_service, stats):
         """
         Traite un hôte Incus.
         
@@ -79,6 +89,7 @@ class SyncIncusJob(JobRunner):
             instance_service: Service de sync des instances
             network_service: Service de sync réseau
             disk_service: Service de sync des disques
+            event_service: Service de sync des événements
             stats: Dict des statistiques à mettre à jour
         """
         self.logger.info(f"Traitement de l'hôte : {host.name} ({host.get_connection_type_display()})")
@@ -102,8 +113,12 @@ class SyncIncusJob(JobRunner):
             instances = client.get_instances(recursion=2)
             self.logger.info(f"  > {len(instances)} instances trouvées.")
             
-            # Résoudre le cluster
+            # Résoudre le cluster (peut être None)
             cluster = instance_service.resolve_cluster(host)
+            if cluster:
+                self.logger.info(f"  Cluster cible: {cluster.name}")
+            else:
+                self.logger.info(f"  Pas de cluster défini (VMs sans cluster)")
             
             # Collecter les noms pour la gestion des suppressions
             incus_instance_names = set()
@@ -138,8 +153,13 @@ class SyncIncusJob(JobRunner):
                     stats['disks_synced'] += disk_count
             
             # Gérer les suppressions
-            deleted = instance_service.handle_deletions(cluster, incus_instance_names)
+            deleted = instance_service.handle_deletions(cluster, host, incus_instance_names)
             stats['instances_removed'] += deleted
+            
+            # Synchroniser les événements (operations) vers Journal Entries
+            self.logger.info(f"  Synchronisation des événements...")
+            events_count = event_service.sync_events(host, client, since_minutes=60)
+            stats['events_synced'] += events_count
             
             # Log des réseaux Incus (informatif)
             networks = client.get_networks()
@@ -160,3 +180,49 @@ class SyncIncusJob(JobRunner):
                 self.logger.info(f"  Version: {env.get('server_version', 'N/A')}")
         except Exception as e:
             self.logger.warning(f"  Impossible de récupérer les infos serveur: {e}")
+
+
+class SyncEventsJob(JobRunner):
+    """
+    Job dédié à la synchronisation des événements Incus.
+    
+    Peut être exécuté plus fréquemment que le job de sync complet
+    pour capturer les événements rapidement.
+    """
+    
+    class Meta:
+        name = "Synchronisation Événements Incus"
+
+    def run(self, *args, **kwargs):
+        # Paramètre optionnel: fenêtre de temps en minutes
+        since_minutes = kwargs.get('since_minutes', 30)
+        
+        self.logger.info(f"Synchronisation des événements Incus (dernières {since_minutes} min)...")
+        
+        hosts = IncusHost.objects.filter(enabled=True)
+        
+        if not hosts.exists():
+            self.logger.warning("Aucun hôte Incus configuré ou activé.")
+            return
+
+        event_service = EventSyncService(logger=self.logger)
+        total_events = 0
+        
+        for host in hosts:
+            self.logger.info(f"  Hôte: {host.name}")
+            
+            try:
+                client = IncusClient(host=host)
+                
+                success, message = client.test_connection()
+                if not success:
+                    self.logger.error(f"    Échec de connexion: {message}")
+                    continue
+                
+                events_count = event_service.sync_events(host, client, since_minutes)
+                total_events += events_count
+                
+            except Exception as e:
+                self.logger.error(f"    Erreur: {e}")
+        
+        self.logger.info(f"Terminé. {total_events} événements synchronisés.")
