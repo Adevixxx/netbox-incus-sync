@@ -9,7 +9,12 @@ from netbox.jobs import JobRunner
 
 from .incus_client import IncusClient
 from .models import IncusHost
-from .services import InstanceSyncService, NetworkSyncService, DiskSyncService, EventSyncService
+from .services import (
+    InstanceSyncService, 
+    NetworkSyncService, 
+    DiskSyncService, 
+    EventSyncService,
+)
 from .custom_fields import ensure_custom_fields_exist
 
 
@@ -18,7 +23,8 @@ class SyncIncusJob(JobRunner):
     Job de synchronisation des instances Incus vers NetBox.
     
     Synchronise :
-    - Instances (VMs/conteneurs)
+    - Instances (VMs/conteneurs) vers VirtualMachine
+    - Cluster NetBox (créé automatiquement si Incus est en mode cluster)
     - Interfaces réseau
     - Adresses IP
     - Disques virtuels
@@ -80,17 +86,10 @@ class SyncIncusJob(JobRunner):
             f"Disques: {stats['disks_synced']} | Events: {stats['events_synced']}"
         )
 
-    def _process_host(self, host, instance_service, network_service, disk_service, event_service, stats):
+    def _process_host(self, host, instance_service, network_service, disk_service, 
+                      event_service, stats):
         """
         Traite un hôte Incus.
-        
-        Args:
-            host: Instance IncusHost
-            instance_service: Service de sync des instances
-            network_service: Service de sync réseau
-            disk_service: Service de sync des disques
-            event_service: Service de sync des événements
-            stats: Dict des statistiques à mettre à jour
         """
         self.logger.info(f"Traitement de l'hôte : {host.name} ({host.get_connection_type_display()})")
         
@@ -99,7 +98,7 @@ class SyncIncusJob(JobRunner):
             client = IncusClient(host=host)
             
             # Test de connexion
-            success, message = client.test_connection()
+            success, message, _ = client.test_connection()
             if not success:
                 self.logger.error(f"  Échec de connexion: {message}")
                 return
@@ -109,16 +108,22 @@ class SyncIncusJob(JobRunner):
             # Log des infos serveur
             self._log_server_info(client)
             
+            # Récupérer les infos de cluster Incus
+            cluster_info = self._get_cluster_info(client)
+            
             # Récupérer les instances (recursion=2 pour avoir l'état)
             instances = client.get_instances(recursion=2)
             self.logger.info(f"  > {len(instances)} instances trouvées.")
             
-            # Résoudre le cluster (peut être None)
-            cluster = instance_service.resolve_cluster(host)
+            # Résoudre le cluster NetBox
+            # - Si Incus est en mode cluster → créer/utiliser un Cluster NetBox
+            # - Sinon → utiliser default_cluster ou None
+            cluster = instance_service.resolve_cluster(host, cluster_info)
+            
             if cluster:
-                self.logger.info(f"  Cluster cible: {cluster.name}")
+                self.logger.info(f"  Cluster NetBox: {cluster.name}")
             else:
-                self.logger.info(f"  Pas de cluster défini (VMs sans cluster)")
+                self.logger.info(f"  Pas de cluster (VMs créées sans cluster)")
             
             # Collecter les noms pour la gestion des suppressions
             incus_instance_names = set()
@@ -156,7 +161,7 @@ class SyncIncusJob(JobRunner):
             deleted = instance_service.handle_deletions(cluster, host, incus_instance_names)
             stats['instances_removed'] += deleted
             
-            # Synchroniser les événements (operations) vers Journal Entries
+            # Synchronisation des événements
             self.logger.info(f"  Synchronisation des événements...")
             events_count = event_service.sync_events(host, client, since_minutes=60)
             stats['events_synced'] += events_count
@@ -169,6 +174,34 @@ class SyncIncusJob(JobRunner):
             self.logger.error(f"Erreur lors du traitement de {host.name}: {e}")
             import traceback
             self.logger.error(traceback.format_exc())
+
+    def _get_cluster_info(self, client):
+        """
+        Récupère les informations de cluster Incus.
+        
+        Returns:
+            dict: {'enabled': bool, 'server_name': str, 'member_count': int} ou None
+        """
+        try:
+            cluster_data = client.get_cluster()
+            if cluster_data and cluster_data.get('enabled'):
+                # Compter les membres si possible
+                members = client.get_cluster_members()
+                member_count = len(members) if members else 0
+                
+                self.logger.info(f"  Mode cluster Incus activé: {cluster_data.get('server_name')} ({member_count} membres)")
+                
+                return {
+                    'enabled': True,
+                    'server_name': cluster_data.get('server_name', ''),
+                    'member_count': member_count,
+                }
+            else:
+                self.logger.info(f"  Mode standalone (pas de cluster Incus)")
+                return {'enabled': False}
+        except Exception as e:
+            self.logger.debug(f"  Impossible de récupérer les infos cluster: {e}")
+            return None
 
     def _log_server_info(self, client):
         """Log les informations du serveur Incus."""
@@ -214,7 +247,7 @@ class SyncEventsJob(JobRunner):
             try:
                 client = IncusClient(host=host)
                 
-                success, message = client.test_connection()
+                success, message, _ = client.test_connection()
                 if not success:
                     self.logger.error(f"    Échec de connexion: {message}")
                     continue

@@ -307,12 +307,119 @@ class IncusClient:
             logger.debug(f"Opération {operation_id} non trouvée: {e}")
         return None
 
+    # ========== Cluster API ==========
+
+    def get_cluster(self):
+        """
+        Récupère les informations du cluster.
+        
+        Returns:
+            dict: Informations du cluster ou None si pas de cluster
+        """
+        try:
+            data = self._request('GET', '/1.0/cluster')
+            if data.get('type') == 'sync':
+                return data.get('metadata')
+        except Exception as e:
+            logger.debug(f"Pas de cluster configuré: {e}")
+        return None
+
+    def get_cluster_members(self, recursion=1):
+        """
+        Récupère la liste des membres du cluster.
+        
+        Args:
+            recursion: Niveau de détail (0=URLs, 1=détails complets)
+        
+        Returns:
+            list: Liste des membres du cluster
+        """
+        try:
+            data = self._request('GET', f'/1.0/cluster/members?recursion={recursion}')
+            if data.get('type') == 'sync':
+                return data.get('metadata', [])
+        except Exception as e:
+            logger.debug(f"Impossible de récupérer les membres du cluster: {e}")
+        return []
+
+    def get_cluster_member(self, name):
+        """
+        Récupère les détails d'un membre du cluster.
+        
+        Args:
+            name: Nom du membre
+        
+        Returns:
+            dict: Détails du membre ou None
+        """
+        try:
+            data = self._request('GET', f'/1.0/cluster/members/{name}')
+            if data.get('type') == 'sync':
+                return data.get('metadata')
+        except Exception as e:
+            logger.debug(f"Membre {name} non trouvé: {e}")
+        return None
+
+    def get_cluster_member_state(self, name):
+        """
+        Récupère l'état d'un membre du cluster (CPU, mémoire, etc.).
+        
+        Args:
+            name: Nom du membre
+        
+        Returns:
+            dict: État du membre ou None
+        """
+        try:
+            data = self._request('GET', f'/1.0/cluster/members/{name}/state')
+            if data.get('type') == 'sync':
+                return data.get('metadata')
+        except Exception as e:
+            logger.debug(f"État du membre {name} non disponible: {e}")
+        return None
+
+    def get_cluster_groups(self, recursion=1):
+        """
+        Récupère la liste des groupes de cluster.
+        
+        Args:
+            recursion: Niveau de détail
+        
+        Returns:
+            list: Liste des groupes de cluster
+        """
+        try:
+            data = self._request('GET', f'/1.0/cluster/groups?recursion={recursion}')
+            if data.get('type') == 'sync':
+                return data.get('metadata', [])
+        except Exception as e:
+            logger.debug(f"Impossible de récupérer les groupes de cluster: {e}")
+        return []
+
+    def get_cluster_group(self, name):
+        """
+        Récupère les détails d'un groupe de cluster.
+        
+        Args:
+            name: Nom du groupe
+        
+        Returns:
+            dict: Détails du groupe ou None
+        """
+        try:
+            data = self._request('GET', f'/1.0/cluster/groups/{name}')
+            if data.get('type') == 'sync':
+                return data.get('metadata')
+        except Exception as e:
+            logger.debug(f"Groupe {name} non trouvé: {e}")
+        return None
+
     def test_connection(self):
         """
         Teste la connexion au serveur Incus.
 
         Returns:
-            tuple: (success: bool, message: str)
+            tuple: (success: bool, message: str, extra_info: dict)
         """
         try:
             info = self.get_server_info()
@@ -320,13 +427,29 @@ class IncusClient:
                 env = info.get('environment', {})
                 server_name = env.get('server_name', 'Inconnu')
                 version = env.get('server_version', 'Inconnue')
-                return True, f"Connecté à {server_name} (version {version})"
-            return False, "Réponse invalide du serveur"
+                
+                # Vérifier si c'est un cluster
+                cluster_info = self.get_cluster()
+                cluster_enabled = cluster_info.get('enabled', False) if cluster_info else False
+                
+                extra_info = {
+                    'server_name': server_name,
+                    'version': version,
+                    'cluster_enabled': cluster_enabled,
+                }
+                
+                if cluster_enabled:
+                    members = self.get_cluster_members()
+                    extra_info['cluster_members'] = len(members)
+                    return True, f"Connecté à {server_name} (version {version}) - Cluster avec {len(members)} nœuds", extra_info
+                
+                return True, f"Connecté à {server_name} (version {version})", extra_info
+            return False, "Réponse invalide du serveur", {}
         except FileNotFoundError as e:
-            return False, f"Fichier certificat manquant: {e}"
+            return False, f"Fichier certificat manquant: {e}", {}
         except PermissionError as e:
-            return False, f"Permission refusée: {e}"
+            return False, f"Permission refusée: {e}", {}
         except ConnectionError as e:
-            return False, str(e)
+            return False, str(e), {}
         except Exception as e:
-            return False, f"Erreur inattendue: {e}"
+            return False, f"Erreur inattendue: {e}", {}

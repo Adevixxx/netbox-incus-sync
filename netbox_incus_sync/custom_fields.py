@@ -2,6 +2,7 @@
 Gestion des Custom Fields pour le plugin Incus Sync.
 
 Ce module crée et gère les Custom Fields nécessaires au plugin.
+Ces champs stockent des métadonnées Incus qui n'ont pas d'équivalent natif dans NetBox.
 """
 
 from django.contrib.contenttypes.models import ContentType
@@ -10,6 +11,7 @@ from extras.choices import CustomFieldTypeChoices, CustomFieldUIVisibleChoices, 
 
 
 # Définition des Custom Fields du plugin
+# On ne crée que les champs qui n'ont PAS d'équivalent natif dans NetBox
 CUSTOM_FIELDS = [
     # ========== Custom Fields pour VMInterface ==========
     {
@@ -91,39 +93,18 @@ CUSTOM_FIELDS = [
         'group_name': 'Incus',
     },
     # ========== Custom Fields pour VirtualMachine ==========
-    {
-        'name': 'incus_host',
-        'label': 'Incus Host',
-        'type': CustomFieldTypeChoices.TYPE_TEXT,
-        'description': 'Nom de l\'hôte Incus source',
-        'object_types': ['virtualization.virtualmachine'],
-        'ui_visible': CustomFieldUIVisibleChoices.ALWAYS,
-        'ui_editable': CustomFieldUIEditableChoices.HIDDEN,
-        'is_cloneable': False,
-        'group_name': 'Incus',
-    },
+    # Note: Le cluster est géré nativement par NetBox (VirtualMachine.cluster)
     {
         'name': 'incus_type',
         'label': 'Instance Type',
         'type': CustomFieldTypeChoices.TYPE_SELECT,
-        'description': 'Type d\'instance Incus',
+        'description': 'Type d\'instance Incus (container ou virtual-machine)',
         'object_types': ['virtualization.virtualmachine'],
         'ui_visible': CustomFieldUIVisibleChoices.ALWAYS,
         'ui_editable': CustomFieldUIEditableChoices.HIDDEN,
         'is_cloneable': False,
         'group_name': 'Incus',
         'choice_set_choices': ['container', 'virtual-machine'],
-    },
-    {
-        'name': 'incus_architecture',
-        'label': 'Architecture',
-        'type': CustomFieldTypeChoices.TYPE_TEXT,
-        'description': 'Architecture CPU de l\'instance (x86_64, aarch64, etc.)',
-        'object_types': ['virtualization.virtualmachine'],
-        'ui_visible': CustomFieldUIVisibleChoices.ALWAYS,
-        'ui_editable': CustomFieldUIEditableChoices.HIDDEN,
-        'is_cloneable': False,
-        'group_name': 'Incus',
     },
     {
         'name': 'incus_image',
@@ -163,6 +144,17 @@ CUSTOM_FIELDS = [
         'label': 'Profiles',
         'type': CustomFieldTypeChoices.TYPE_TEXT,
         'description': 'Profils Incus appliqués à l\'instance',
+        'object_types': ['virtualization.virtualmachine'],
+        'ui_visible': CustomFieldUIVisibleChoices.IF_SET,
+        'ui_editable': CustomFieldUIEditableChoices.HIDDEN,
+        'is_cloneable': False,
+        'group_name': 'Incus',
+    },
+    {
+        'name': 'incus_location',
+        'label': 'Cluster Node',
+        'type': CustomFieldTypeChoices.TYPE_TEXT,
+        'description': 'Nœud du cluster Incus sur lequel tourne l\'instance (si cluster)',
         'object_types': ['virtualization.virtualmachine'],
         'ui_visible': CustomFieldUIVisibleChoices.IF_SET,
         'ui_editable': CustomFieldUIEditableChoices.HIDDEN,

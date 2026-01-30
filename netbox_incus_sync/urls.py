@@ -13,4 +13,7 @@ urlpatterns = [
     # Synchronisation
     path('sync/', views.IncusSyncView.as_view(), name='sync'),
     path('sync/events/', views.IncusSyncEventsView.as_view(), name='sync_events'),
+    
+    # Test de connexion
+    path('hosts/<int:pk>/test-connection/', views.IncusHostTestConnectionView.as_view(), name='incushost_test_connection'),
 ]

@@ -10,7 +10,7 @@ incushost_buttons = (
     ),
     PluginMenuButton(
         link='plugins:netbox_incus_sync:sync',
-        title='Sync complète',
+        title='Sync',
         icon_class='mdi mdi-sync',
         color='blue'
     ),
