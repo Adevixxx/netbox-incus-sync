@@ -5,6 +5,10 @@ Utilise les objets natifs NetBox :
 - ClusterType : Type "Incus" créé automatiquement
 - Cluster : Un cluster par hôte Incus (si clustering Incus activé)
 - VirtualMachine : Les instances Incus
+
+Identification des instances :
+- Utilise l'UUID Incus (volatile.uuid) comme identifiant unique
+- Permet de gérer correctement les renommages d'instances
 """
 
 from datetime import datetime
@@ -28,6 +32,10 @@ class InstanceSyncService:
       (sauf si default_cluster est défini manuellement sur l'IncusHost)
     - Si Incus EST en mode cluster : un Cluster NetBox est créé automatiquement
       et toutes les VMs y sont assignées
+    
+    Identification des instances :
+    - Utilise l'UUID Incus (config['volatile.uuid']) comme identifiant unique
+    - Permet de suivre les instances même après un renommage
     """
     
     def __init__(self, logger=None):
@@ -127,6 +135,10 @@ class InstanceSyncService:
         """
         Synchronise une instance Incus vers NetBox.
         
+        Utilise l'UUID Incus (volatile.uuid) comme identifiant unique pour :
+        - Retrouver une VM existante même si elle a été renommée
+        - Éviter les doublons
+        
         Args:
             data: Données de l'instance Incus
             cluster: Cluster NetBox cible (peut être None)
@@ -138,14 +150,16 @@ class InstanceSyncService:
         vm_name = data.get('name')
         status_raw = data.get('status')
         instance_type = data.get('type', 'container')
+        config = data.get('config', {})
+        
+        # UUID unique de l'instance Incus
+        incus_uuid = config.get('volatile.uuid', '')
         
         # Champ location pour le clustering - indique sur quel nœud tourne l'instance
         location = data.get('location', '')
         
         # Mapping du statut
         nb_status = 'active' if status_raw == 'Running' else 'offline'
-        
-        config = data.get('config', {})
         
         # Extraction des ressources
         vcpus = self._extract_cpu(config)
@@ -164,12 +178,21 @@ class InstanceSyncService:
         if disk_mb:
             defaults['disk'] = disk_mb
         
-        # Rechercher la VM existante
-        existing_vm = self._find_existing_vm(vm_name, cluster, host)
+        # Rechercher la VM existante par UUID d'abord, puis par nom
+        existing_vm = self._find_existing_vm(vm_name, incus_uuid, host)
         created = existing_vm is None
+        renamed = False
+        old_name = None
         
         if existing_vm:
+            # Vérifier si l'instance a été renommée
+            if existing_vm.name != vm_name:
+                old_name = existing_vm.name
+                renamed = True
+                self.log('info', f"  Renommage détecté: {old_name} -> {vm_name}")
+            
             # Mettre à jour la VM existante
+            existing_vm.name = vm_name  # Mettre à jour le nom si renommé
             for key, value in defaults.items():
                 setattr(existing_vm, key, value)
             existing_vm.save()
@@ -181,14 +204,20 @@ class InstanceSyncService:
                 **defaults
             )
         
-        # Mettre à jour les Custom Fields
-        self._update_vm_custom_fields(vm, data, host, location)
+        # Mettre à jour les Custom Fields (incluant l'UUID)
+        self._update_vm_custom_fields(vm, data, host, location, incus_uuid)
         
         # Appliquer les tags
         self._apply_tags(vm, instance_type)
         
         # Log
-        action = "Créé" if created else "Mis à jour"
+        if renamed:
+            action = f"Renommé ({old_name} ->)"
+        elif created:
+            action = "Créé"
+        else:
+            action = "Mis à jour"
+        
         type_label = "container" if instance_type == 'container' else "VM"
         cluster_info = f" dans {cluster.name}" if cluster else " (sans cluster)"
         location_info = f" sur {location}" if location else ""
@@ -196,40 +225,49 @@ class InstanceSyncService:
         
         return vm, created, not created
     
-    def _find_existing_vm(self, vm_name, cluster, host):
+    def _find_existing_vm(self, vm_name, incus_uuid, host):
         """
-        Recherche une VM existante par son nom.
+        Recherche une VM existante, d'abord par UUID puis par nom.
         
-        Stratégie de recherche :
-        1. Par nom + cluster (si cluster défini)
-        2. Par nom seul (si pas de cluster)
+        Stratégie de recherche (dans l'ordre) :
+        1. Par UUID Incus (le plus fiable, survit aux renommages)
+        2. Par nom + hôte Incus (fallback pour les anciennes VMs sans UUID)
         
         Args:
-            vm_name: Nom de la VM
-            cluster: Cluster cible (peut être None)
-            host: IncusHost source (non utilisé mais gardé pour compatibilité)
+            vm_name: Nom actuel de la VM dans Incus
+            incus_uuid: UUID de l'instance Incus (volatile.uuid)
+            host: IncusHost source
         
         Returns:
             VirtualMachine ou None
         """
-        if cluster:
-            # Recherche par nom + cluster
-            return VirtualMachine.objects.filter(name=vm_name, cluster=cluster).first()
-        else:
-            # Recherche par nom sans cluster
-            return VirtualMachine.objects.filter(name=vm_name, cluster__isnull=True).first()
+        # 1. Recherche par UUID (méthode privilégiée)
+        if incus_uuid:
+            vm = VirtualMachine.objects.filter(
+                custom_field_data__incus_uuid=incus_uuid
+            ).first()
+            if vm:
+                return vm
+        
+        # 2. Fallback: recherche par nom + hôte Incus
+        # (pour les VMs créées avant l'ajout du tracking par UUID)
+        vm = VirtualMachine.objects.filter(
+            name=vm_name,
+            custom_field_data__incus_host=host.name
+        ).first()
+        
+        return vm
     
-    def _update_vm_custom_fields(self, vm, data, host, location=''):
+    def _update_vm_custom_fields(self, vm, data, host, location='', incus_uuid=''):
         """
         Met à jour les Custom Fields de la VM.
-        
-        Note: On ne stocke plus incus_host car le cluster suffit à identifier la source.
         
         Args:
             vm: Instance VirtualMachine NetBox
             data: Données de l'instance Incus
-            host: Instance IncusHost source (pour référence, non stocké)
+            host: Instance IncusHost source
             location: Nom du nœud de cluster (optionnel)
+            incus_uuid: UUID unique de l'instance Incus
         """
         config = data.get('config', {})
         instance_type = data.get('type', 'container')
@@ -245,6 +283,16 @@ class InstanceSyncService:
         ).strip()
         
         updated = False
+        
+        # UUID Incus (identifiant unique pour le tracking)
+        if incus_uuid and vm.custom_field_data.get('incus_uuid') != incus_uuid:
+            vm.custom_field_data['incus_uuid'] = incus_uuid
+            updated = True
+        
+        # Hôte Incus source
+        if vm.custom_field_data.get('incus_host') != host.name:
+            vm.custom_field_data['incus_host'] = host.name
+            updated = True
         
         # Instance Type
         if vm.custom_field_data.get('incus_type') != instance_type:
@@ -320,17 +368,19 @@ class InstanceSyncService:
             self.log('debug', f"    Impossible de parser la date: {dt_string} - {e}")
             return None
     
-    def handle_deletions(self, cluster, host, incus_instance_names):
+    def handle_deletions(self, cluster, host, incus_instance_uuids):
         """
-        Gère les VMs qui n'existent plus dans Incus.
+        Supprime les VMs qui n'existent plus dans Incus.
+        
+        Utilise les UUIDs pour identifier les VMs à supprimer.
         
         Args:
             cluster: Cluster NetBox (peut être None)
-            host: IncusHost source (non utilisé mais gardé pour compatibilité)
-            incus_instance_names: Set des noms d'instances actuelles dans Incus
+            host: IncusHost source
+            incus_instance_uuids: Set des UUIDs d'instances actuelles dans Incus
         
         Returns:
-            int: Nombre de VMs marquées comme supprimées
+            int: Nombre de VMs supprimées
         """
         deleted_count = 0
         
@@ -339,28 +389,28 @@ class InstanceSyncService:
         except Tag.DoesNotExist:
             return 0
         
-        # Filtrer les VMs gérées par ce cluster (ou sans cluster)
-        if cluster:
-            managed_vms = VirtualMachine.objects.filter(
-                tags=managed_tag,
-                cluster=cluster
-            )
-        else:
-            managed_vms = VirtualMachine.objects.filter(
-                tags=managed_tag,
-                cluster__isnull=True
-            )
+        # Filtrer les VMs gérées par cet hôte Incus
+        managed_vms = VirtualMachine.objects.filter(
+            tags=managed_tag,
+            custom_field_data__incus_host=host.name
+        )
         
         for vm in managed_vms:
-            if vm.name not in incus_instance_names:
-                self.log('warning', f"  Instance disparue d'Incus: {vm.name}")
+            vm_uuid = vm.custom_field_data.get('incus_uuid', '')
+            
+            # Si la VM a un UUID et qu'il n'est plus dans Incus
+            if vm_uuid and vm_uuid not in incus_instance_uuids:
+                vm_name = vm.name
+                self.log('warning', f"  Instance disparue d'Incus: {vm_name} (UUID: {vm_uuid[:8]}...)")
                 
-                # Marquer comme offline et retirer le tag managed
-                vm.status = 'offline'
-                vm.tags.remove(managed_tag)
-                vm.save()
+                # Supprimer la VM de NetBox
+                vm.delete()
                 deleted_count += 1
-                self.log('info', f"  Marqué comme supprimé: {vm.name}")
+                self.log('info', f"  Supprimé de NetBox: {vm_name}")
+            
+            # Fallback pour les VMs sans UUID (anciennes)
+            elif not vm_uuid:
+                self.log('debug', f"  VM sans UUID ignorée pour la suppression: {vm.name}")
         
         return deleted_count
     

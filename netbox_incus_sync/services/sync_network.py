@@ -238,35 +238,49 @@ class NetworkSyncService:
             # Normaliser l'adresse MAC (majuscules)
             hwaddr_normalized = hwaddr.upper()
             
-            # Récupérer ou créer l'adresse MAC
-            mac_obj, created = MACAddress.objects.get_or_create(
+            # Vérifier si cette interface a déjà cette MAC comme primaire
+            current_primary = interface.primary_mac_address
+            if current_primary and str(current_primary.mac_address).upper() == hwaddr_normalized:
+                # Déjà configuré correctement
+                return
+            
+            # Chercher si cette MAC existe déjà et est assignée à cette interface
+            existing_mac = MACAddress.objects.filter(
                 mac_address=hwaddr_normalized,
-                defaults={
-                    'assigned_object_type': self.vminterface_content_type,
-                    'assigned_object_id': interface.pk,
-                    'description': f"Synced from Incus - {interface.virtual_machine.name}",
-                }
-            )
+                assigned_object_type=self.vminterface_content_type,
+                assigned_object_id=interface.pk
+            ).first()
             
-            # Si l'adresse MAC existe déjà mais n'est pas assignée à cette interface
-            if not created:
-                if (mac_obj.assigned_object_id != interface.pk or 
-                    mac_obj.assigned_object_type != self.vminterface_content_type):
-                    mac_obj.assigned_object_type = self.vminterface_content_type
-                    mac_obj.assigned_object_id = interface.pk
-                    mac_obj.save()
+            if existing_mac:
+                # MAC existe et est déjà assignée à cette interface
+                mac_obj = existing_mac
+            else:
+                # Chercher si cette MAC existe mais assignée ailleurs
+                existing_mac_elsewhere = MACAddress.objects.filter(
+                    mac_address=hwaddr_normalized
+                ).first()
+                
+                if existing_mac_elsewhere:
+                    # Réassigner à cette interface
+                    existing_mac_elsewhere.assigned_object_type = self.vminterface_content_type
+                    existing_mac_elsewhere.assigned_object_id = interface.pk
+                    existing_mac_elsewhere.save()
+                    mac_obj = existing_mac_elsewhere
+                    self.log('info', f"    MAC réassignée: {hwaddr_normalized}")
+                else:
+                    # Créer une nouvelle MAC
+                    mac_obj = MACAddress.objects.create(
+                        mac_address=hwaddr_normalized,
+                        assigned_object_type=self.vminterface_content_type,
+                        assigned_object_id=interface.pk,
+                        description=f"Synced from Incus - {interface.virtual_machine.name}",
+                    )
+                    self.log('info', f"    MAC créée: {hwaddr_normalized}")
             
-            # Définir cette MAC comme adresse primaire de l'interface
-            # Dans NetBox 4.2+, c'est le champ primary_mac_address
+            # Définir comme primaire seulement si pas déjà fait
             if interface.primary_mac_address_id != mac_obj.pk:
                 interface.primary_mac_address = mac_obj
                 interface.save()
-                if created:
-                    self.log('info', f"    MAC créée et définie comme primaire: {hwaddr_normalized}")
-                else:
-                    self.log('info', f"    MAC définie comme primaire: {hwaddr_normalized}")
-            elif created:
-                self.log('info', f"    MAC créée: {hwaddr_normalized}")
                 
         except Exception as e:
             self.log('warning', f"    Erreur lors de la sync MAC {hwaddr}: {e}")
@@ -326,44 +340,73 @@ class NetworkSyncService:
         Returns:
             IPAddress ou None
         """
-        ip_obj, created = IPAddress.objects.get_or_create(
+        # Chercher d'abord si cette IP existe déjà
+        existing_ip = IPAddress.objects.filter(address=ip_cidr).first()
+        
+        if existing_ip:
+            # Vérifier si elle est déjà assignée à cette interface
+            if (existing_ip.assigned_object_id == interface.pk and 
+                existing_ip.assigned_object_type == self.vminterface_content_type):
+                # Déjà correctement assignée
+                return existing_ip
+            
+            # Réassigner à cette interface
+            existing_ip.assigned_object_type = self.vminterface_content_type
+            existing_ip.assigned_object_id = interface.pk
+            existing_ip.save()
+            return existing_ip
+        
+        # Créer une nouvelle IP
+        ip_obj = IPAddress.objects.create(
             address=ip_cidr,
-            defaults={
-                'description': f"Incus instance: {vm_name} ({interface.name})",
-            }
+            assigned_object_type=self.vminterface_content_type,
+            assigned_object_id=interface.pk,
+            description=f"Incus instance: {vm_name} ({interface.name})",
         )
         
-        # Assigner à l'interface si pas déjà fait
-        if (ip_obj.assigned_object_id != interface.pk or 
-            ip_obj.assigned_object_type != self.vminterface_content_type):
-            ip_obj.assigned_object_type = self.vminterface_content_type
-            ip_obj.assigned_object_id = interface.pk
-            ip_obj.save()
-        
-        if created:
-            self.log('info', f"    IP créée: {ip_cidr} sur {interface.name}")
-        
+        self.log('info', f"    IP créée: {ip_cidr} sur {interface.name}")
         return ip_obj
     
     def _set_primary_ips(self, vm, ip4, ip6):
         """
         Définit les IPs primaires de la VM.
         
+        Gère correctement le cas où l'IP est déjà primaire sur une autre VM
+        (ce qui peut arriver lors d'un renommage ou d'une reconstruction).
+        
         Args:
             vm: Instance VirtualMachine
             ip4: IPAddress IPv4 candidate (ou None)
             ip6: IPAddress IPv6 candidate (ou None)
         """
+        from virtualization.models import VirtualMachine
+        
         updated = False
         
-        # Définir IPv4 primaire si pas déjà définie ou si différente
+        # Définir IPv4 primaire
         if ip4 and vm.primary_ip4_id != ip4.pk:
+            # Vérifier si cette IP est déjà primaire sur une autre VM
+            other_vm = VirtualMachine.objects.filter(primary_ip4=ip4).exclude(pk=vm.pk).first()
+            if other_vm:
+                # Retirer l'IP primaire de l'autre VM
+                self.log('warning', f"    IP {ip4.address} était primaire sur {other_vm.name}, réassignation...")
+                other_vm.primary_ip4 = None
+                other_vm.save()
+            
             vm.primary_ip4 = ip4
             updated = True
             self.log('info', f"    IP primaire v4: {ip4.address}")
         
-        # Définir IPv6 primaire si pas déjà définie ou si différente
+        # Définir IPv6 primaire
         if ip6 and vm.primary_ip6_id != ip6.pk:
+            # Vérifier si cette IP est déjà primaire sur une autre VM
+            other_vm = VirtualMachine.objects.filter(primary_ip6=ip6).exclude(pk=vm.pk).first()
+            if other_vm:
+                # Retirer l'IP primaire de l'autre VM
+                self.log('warning', f"    IP {ip6.address} était primaire sur {other_vm.name}, réassignation...")
+                other_vm.primary_ip6 = None
+                other_vm.save()
+            
             vm.primary_ip6 = ip6
             updated = True
             self.log('info', f"    IP primaire v6: {ip6.address}")

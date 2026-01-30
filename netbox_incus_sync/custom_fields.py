@@ -95,6 +95,28 @@ CUSTOM_FIELDS = [
     # ========== Custom Fields pour VirtualMachine ==========
     # Note: Le cluster est géré nativement par NetBox (VirtualMachine.cluster)
     {
+        'name': 'incus_uuid',
+        'label': 'Incus UUID',
+        'type': CustomFieldTypeChoices.TYPE_TEXT,
+        'description': 'UUID unique de l\'instance Incus (volatile.uuid) - utilisé pour le tracking',
+        'object_types': ['virtualization.virtualmachine'],
+        'ui_visible': CustomFieldUIVisibleChoices.IF_SET,
+        'ui_editable': CustomFieldUIEditableChoices.HIDDEN,
+        'is_cloneable': False,
+        'group_name': 'Incus',
+    },
+    {
+        'name': 'incus_host',
+        'label': 'Incus Host',
+        'type': CustomFieldTypeChoices.TYPE_TEXT,
+        'description': 'Nom de l\'hôte Incus source',
+        'object_types': ['virtualization.virtualmachine'],
+        'ui_visible': CustomFieldUIVisibleChoices.ALWAYS,
+        'ui_editable': CustomFieldUIEditableChoices.HIDDEN,
+        'is_cloneable': False,
+        'group_name': 'Incus',
+    },
+    {
         'name': 'incus_type',
         'label': 'Instance Type',
         'type': CustomFieldTypeChoices.TYPE_SELECT,

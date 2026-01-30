@@ -125,13 +125,18 @@ class SyncIncusJob(JobRunner):
             else:
                 self.logger.info(f"  Pas de cluster (VMs créées sans cluster)")
             
-            # Collecter les noms pour la gestion des suppressions
-            incus_instance_names = set()
+            # Collecter les UUIDs pour la gestion des suppressions
+            incus_instance_uuids = set()
             
             # Synchroniser chaque instance
             for instance_data in instances:
                 instance_name = instance_data.get('name')
-                incus_instance_names.add(instance_name)
+                config = instance_data.get('config', {})
+                incus_uuid = config.get('volatile.uuid', '')
+                
+                # Collecter l'UUID
+                if incus_uuid:
+                    incus_instance_uuids.add(incus_uuid)
                 
                 # Sync de l'instance
                 vm, created, updated = instance_service.sync_instance(
@@ -157,8 +162,8 @@ class SyncIncusJob(JobRunner):
                     )
                     stats['disks_synced'] += disk_count
             
-            # Gérer les suppressions
-            deleted = instance_service.handle_deletions(cluster, host, incus_instance_names)
+            # Gérer les suppressions (utilise les UUIDs)
+            deleted = instance_service.handle_deletions(cluster, host, incus_instance_uuids)
             stats['instances_removed'] += deleted
             
             # Synchronisation des événements
