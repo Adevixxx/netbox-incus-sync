@@ -1,5 +1,5 @@
 """
-Service de synchronisation des événements Incus vers NetBox Journal Entries.
+Incus events synchronization service to NetBox Journal Entries.
 """
 
 from datetime import datetime, timedelta
@@ -10,7 +10,7 @@ from extras.choices import JournalEntryKindChoices
 from virtualization.models import VirtualMachine
 
 
-# Mapping des événements Incus vers les types de Journal Entry
+# Mapping Incus events to Journal Entry kinds
 EVENT_KIND_MAPPING = {
     # Lifecycle events
     'instance-created': JournalEntryKindChoices.KIND_SUCCESS,
@@ -36,7 +36,7 @@ EVENT_KIND_MAPPING = {
     'instance-backup-restored': JournalEntryKindChoices.KIND_SUCCESS,
 }
 
-# Labels lisibles pour les événements
+# Readable labels for events
 EVENT_LABELS = {
     'instance-created': 'Instance created',
     'instance-started': 'Instance started',
@@ -61,79 +61,79 @@ EVENT_LABELS = {
 
 class EventSyncService:
     """
-    Service pour synchroniser les événements Incus vers NetBox Journal Entries.
+    Service to synchronize Incus events to NetBox Journal Entries.
     """
     
     def __init__(self, logger=None):
         """
-        Initialise le service.
+        Initializes the service.
         
         Args:
-            logger: Logger pour les messages (optionnel)
+            logger: Logger for messages (optional)
         """
         self.logger = logger
         self._vm_content_type = None
     
     def log(self, level, message):
-        """Log un message si logger disponible."""
+        """Log a message if logger is available."""
         if self.logger:
             getattr(self.logger, level)(message)
     
     @property
     def vm_content_type(self):
-        """Retourne le ContentType pour VirtualMachine (cached)."""
+        """Returns ContentType for VirtualMachine (cached)."""
         if self._vm_content_type is None:
             self._vm_content_type = ContentType.objects.get_for_model(VirtualMachine)
         return self._vm_content_type
     
     def sync_events(self, host, client, since_minutes=60):
         """
-        Synchronise les événements récents d'un hôte Incus.
+        Synchronizes recent events from an Incus host.
         
         Args:
-            host: Instance IncusHost
-            client: Client Incus connecté
-            since_minutes: Récupérer les événements des N dernières minutes
+            host: IncusHost instance
+            client: Connected Incus Client
+            since_minutes: Retrieve events from last N minutes
         
         Returns:
-            int: Nombre d'événements synchronisés
+            int: Number of synchronized events
         """
         events_synced = 0
         
-        # Récupérer les opérations récentes (les events lifecycle sont dans les operations)
+        # Retrieve recent operations (lifecycle events are in operations)
         operations = client.get_operations()
         
         if not operations:
-            self.log('info', f"  Aucune opération récente trouvée")
+            self.log('info', f"  No recent operations found")
             return 0
         
-        # Calculer le timestamp minimum
+        # Calculate minimum timestamp
         since_time = timezone.now() - timedelta(minutes=since_minutes)
         
-        self.log('info', f"  Analyse de {len(operations)} opérations...")
+        self.log('info', f"  Analyzing {len(operations)} operations...")
         
         for operation in operations:
-            # Filtrer par date
+            # Filter by date
             op_created = self._parse_timestamp(operation.get('created_at', ''))
             if not op_created or op_created < since_time:
                 continue
             
-            # Extraire les infos de l'opération
+            # Extract operation info
             op_class = operation.get('class', '')
             op_description = operation.get('description', '')
             op_status = operation.get('status', '')
             op_resources = operation.get('resources', {})
             
-            # Ne traiter que les opérations liées aux instances
+            # Process only instance-related operations
             instances = op_resources.get('instances', [])
             if not instances:
                 continue
             
-            # Pour chaque instance concernée
+            # For each affected instance
             for instance_url in instances:
                 instance_name = instance_url.split('/')[-1]
                 
-                # Créer l'entrée de journal
+                # Create journal entry
                 created = self._create_journal_entry(
                     instance_name=instance_name,
                     host=host,
@@ -148,65 +148,65 @@ class EventSyncService:
     
     def sync_lifecycle_events(self, host, client, since_minutes=60):
         """
-        Synchronise les événements lifecycle via l'endpoint events (si disponible).
+        Synchronizes lifecycle events via events endpoint (if available).
         
-        Note: L'API /1.0/events est un stream WebSocket, pas REST.
-        On utilise plutôt /1.0/operations pour l'historique.
+        Note: The /1.0/events API is a WebSocket stream, not REST.
+        We use /1.0/operations for history instead.
         
         Args:
-            host: Instance IncusHost
-            client: Client Incus connecté  
-            since_minutes: Fenêtre de temps
+            host: IncusHost instance
+            client: Connected Incus Client
+            since_minutes: Time window
         
         Returns:
-            int: Nombre d'événements synchronisés
+            int: Number of synchronized events
         """
-        # Pour l'instant, on délègue à sync_events qui utilise les operations
+        # For now, delegate to sync_events which uses operations
         return self.sync_events(host, client, since_minutes)
     
     def _create_journal_entry(self, instance_name, host, operation, op_created):
         """
-        Crée une Journal Entry pour un événement.
+        Creates a Journal Entry for an event.
         
         Args:
-            instance_name: Nom de l'instance Incus
-            host: IncusHost source
-            operation: Données de l'opération Incus
-            op_created: Timestamp de l'opération
+            instance_name: Incus instance name
+            host: Source IncusHost
+            operation: Incus operation data
+            op_created: Operation timestamp
         
         Returns:
-            bool: True si créée, False si déjà existante ou VM non trouvée
+            bool: True if created, False if already existing or VM not found
         """
-        # Trouver la VM correspondante
+        # Find corresponding VM
         vm = self._find_vm(instance_name, host)
         if not vm:
-            self.log('debug', f"    VM non trouvée pour {instance_name}, skip")
+            self.log('debug', f"    VM not found for {instance_name}, skip")
             return False
         
-        # Extraire les infos de l'opération
+        # Extract operation info
         op_id = operation.get('id', '')
         op_description = operation.get('description', '')
         op_status = operation.get('status', '')
         op_err = operation.get('err', '')
         
-        # Déterminer le type d'événement depuis la description
+        # Determine event type from description
         event_type = self._detect_event_type(op_description)
         
-        # Vérifier si cette entrée existe déjà (éviter les doublons)
+        # Check if this entry already exists (avoid duplicates)
         if self._journal_entry_exists(vm, op_id, op_created):
             return False
         
-        # Déterminer le kind de l'entrée
+        # Determine entry kind
         if op_status == 'Failure' or op_err:
             kind = JournalEntryKindChoices.KIND_DANGER
         else:
             kind = EVENT_KIND_MAPPING.get(event_type, JournalEntryKindChoices.KIND_INFO)
         
-        # Construire le commentaire
+        # Build comment
         label = EVENT_LABELS.get(event_type, op_description)
         comments = self._build_comments(label, operation, host)
         
-        # Créer l'entrée
+        # Create entry
         JournalEntry.objects.create(
             assigned_object_type=self.vm_content_type,
             assigned_object_id=vm.pk,
@@ -220,16 +220,16 @@ class EventSyncService:
     
     def _find_vm(self, instance_name, host):
         """
-        Trouve la VM NetBox correspondant à une instance Incus.
+        Finds the NetBox VM corresponding to an Incus instance.
         
         Args:
-            instance_name: Nom de l'instance
-            host: IncusHost source
+            instance_name: Instance name
+            host: Source IncusHost
         
         Returns:
-            VirtualMachine ou None
+            VirtualMachine or None
         """
-        # Chercher par nom et incus_host custom field
+        # Search by name and incus_host custom field
         vm = VirtualMachine.objects.filter(
             name=instance_name,
             custom_field_data__incus_host=host.name
@@ -238,7 +238,7 @@ class EventSyncService:
         if vm:
             return vm
         
-        # Fallback: chercher par nom seul si une seule VM existe
+        # Fallback: search by name alone if only one VM exists
         vms = VirtualMachine.objects.filter(name=instance_name)
         if vms.count() == 1:
             return vms.first()
@@ -247,13 +247,13 @@ class EventSyncService:
     
     def _detect_event_type(self, description):
         """
-        Détecte le type d'événement depuis la description de l'opération.
+        Detects event type from operation description.
         
         Args:
-            description: Description de l'opération (ex: "Starting instance")
+            description: Operation description (e.g., "Starting instance")
         
         Returns:
-            str: Type d'événement (ex: "instance-started")
+            str: Event type (e.g., "instance-started")
         """
         description_lower = description.lower()
         
@@ -287,21 +287,21 @@ class EventSyncService:
     
     def _journal_entry_exists(self, vm, op_id, op_created):
         """
-        Vérifie si une Journal Entry existe déjà pour cette opération.
+        Checks if a Journal Entry already exists for this operation.
         
-        On utilise une combinaison de l'objet, le timestamp et l'ID d'opération
-        (stocké dans le commentaire) pour éviter les doublons.
+        Uses a combination of object, timestamp, and operation ID
+        (stored in the comment) to avoid duplicates.
         
         Args:
             vm: VirtualMachine
-            op_id: ID de l'opération Incus
-            op_created: Timestamp de l'opération
+            op_id: Incus operation ID
+            op_created: Operation timestamp
         
         Returns:
-            bool: True si existe déjà
+            bool: True if already exists
         """
-        # Chercher une entrée avec le même timestamp (à la seconde près)
-        # et contenant l'ID d'opération dans le commentaire
+        # Search for an entry with the same timestamp (down to the second)
+        # and containing the operation ID in the comment
         time_window_start = op_created - timedelta(seconds=1)
         time_window_end = op_created + timedelta(seconds=1)
         
@@ -317,15 +317,15 @@ class EventSyncService:
     
     def _build_comments(self, label, operation, host):
         """
-        Construit le texte du commentaire pour la Journal Entry.
+        Builds the comment text for the Journal Entry.
         
         Args:
-            label: Label de l'événement
-            operation: Données de l'opération
-            host: IncusHost source
+            label: Event label
+            operation: Operation data
+            host: Source IncusHost
         
         Returns:
-            str: Commentaire formaté (Markdown)
+            str: Formatted comment (Markdown)
         """
         op_id = operation.get('id', 'N/A')
         op_status = operation.get('status', 'N/A')
@@ -350,19 +350,19 @@ class EventSyncService:
     
     def _parse_timestamp(self, ts_string):
         """
-        Parse un timestamp Incus.
+        Parses an Incus timestamp.
         
         Args:
-            ts_string: Timestamp au format ISO
+            ts_string: ISO format timestamp
         
         Returns:
-            datetime ou None
+            datetime or None
         """
         if not ts_string:
             return None
         
         try:
-            # Format Incus: 2026-01-27T13:58:42.690298037Z
+            # Incus Format: 2026-01-27T13:58:42.690298037Z
             if '.' in ts_string:
                 base, frac = ts_string.split('.')
                 frac_clean = frac.rstrip('Z')[:6]
@@ -374,14 +374,14 @@ class EventSyncService:
     
     def create_sync_journal_entry(self, vm, host, action="synced"):
         """
-        Crée une Journal Entry pour marquer une synchronisation.
+        Creates a Journal Entry to mark a synchronization.
         
-        Utile pour tracer quand une VM a été synchronisée.
+        Useful for tracking when a VM was synchronized.
         
         Args:
             vm: VirtualMachine
-            host: IncusHost source
-            action: Action effectuée (synced, created, updated)
+            host: Source IncusHost
+            action: Action performed (synced, created, updated)
         
         Returns:
             JournalEntry

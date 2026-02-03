@@ -4,13 +4,13 @@ from .models import IncusHost
 
 
 class IncusHostTable(NetBoxTable):
-    """Table d'affichage des hôtes Incus."""
+    """Table for displaying Incus hosts."""
 
     pk = ToggleColumn()
 
     name = tables.Column(
         linkify=True,
-        verbose_name='Nom'
+        verbose_name='Name'
     )
 
     connection_type = ChoiceFieldColumn(
@@ -19,12 +19,12 @@ class IncusHostTable(NetBoxTable):
 
     connection_info = tables.Column(
         accessor='connection_url',
-        verbose_name='Connexion',
+        verbose_name='Connection',
         orderable=False
     )
 
     enabled = tables.BooleanColumn(
-        verbose_name='Activé'
+        verbose_name='Enabled'
     )
 
     default_cluster = tables.Column(

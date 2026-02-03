@@ -1,18 +1,18 @@
 """
-Fonctions utilitaires pour la synchronisation Incus.
+Utility functions for Incus synchronization.
 """
 
 from extras.models import Tag
 
 
-# Couleurs des tags NetBox
+# NetBox Tag colors
 TAG_COLORS = {
     'container': 'blue',
     'virtual-machine': 'purple',
     'incus-managed': 'green',
 }
 
-# Définition des tags
+# Tag Definitions
 TAGS_DEFINITION = [
     ('incus-container', 'Incus Container', TAG_COLORS['container']),
     ('incus-vm', 'Incus Virtual Machine', TAG_COLORS['virtual-machine']),
@@ -22,13 +22,13 @@ TAGS_DEFINITION = [
 
 def ensure_tags_exist(logger=None):
     """
-    Crée les tags nécessaires s'ils n'existent pas.
+    Creates necessary tags if they don't exist.
     
     Args:
-        logger: Logger optionnel pour les messages
+        logger: Optional logger for messages
     
     Returns:
-        dict: Les tags créés/récupérés par slug
+        dict: Created/Retrieved tags by slug
     """
     tags = {}
     for slug, name, color in TAGS_DEFINITION:
@@ -38,21 +38,21 @@ def ensure_tags_exist(logger=None):
         )
         tags[slug] = tag
         if created and logger:
-            logger.info(f"  Tag créé: {name}")
+            logger.info(f"  Tag created: {name}")
     return tags
 
 
 def parse_memory(value):
     """
-    Convertit une valeur mémoire Incus en MB.
+    Converts an Incus memory value to MB.
     
-    Supporte: GiB, GB, MiB, MB, KiB, KB, bytes
+    Supports: GiB, GB, MiB, MB, KiB, KB, bytes
     
     Args:
-        value: Valeur mémoire (str ou int)
+        value: Memory value (str or int)
     
     Returns:
-        int: Valeur en MB ou None
+        int: Value in MB or None
     """
     if not value:
         return None
@@ -77,7 +77,7 @@ def parse_memory(value):
         # Kilobytes
         elif value.endswith('KB'):
             return int(float(value[:-2]) / 1024)
-        # Bytes (nombre seul)
+        # Bytes (number only)
         else:
             return int(int(value) / (1024 * 1024))
     except (ValueError, TypeError):
@@ -86,21 +86,21 @@ def parse_memory(value):
 
 def parse_size(value):
     """
-    Convertit une taille de disque Incus en MB.
-    Alias pour parse_memory car même logique.
+    Converts an Incus disk size to MB.
+    Alias for parse_memory as logic is the same.
     """
     return parse_memory(value)
 
 
 def get_instance_type_tag(instance_type):
     """
-    Retourne le slug du tag correspondant au type d'instance.
+    Returns the tag slug corresponding to the instance type.
     
     Args:
-        instance_type: 'container' ou 'virtual-machine'
+        instance_type: 'container' or 'virtual-machine'
     
     Returns:
-        str: Slug du tag
+        str: Tag Slug
     """
     if instance_type == 'container':
         return 'incus-container'

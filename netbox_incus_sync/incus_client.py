@@ -8,37 +8,37 @@ logger = logging.getLogger(__name__)
 
 class IncusClient:
     """
-    Client pour communiquer avec l'API Incus.
+    Client to communicate with the Incus API.
     
-    Supporte deux modes de connexion :
-    - Socket Unix (local) : http+unix://%2Fvar%2Flib%2Fincus%2Funix.socket
-    - HTTPS (distant) : https://incus.example.com:8443 avec certificats TLS
+    Supports two connection modes:
+    - Unix Socket (local): http+unix://%2Fvar%2Flib%2Fincus%2Funix.socket
+    - HTTPS (remote): https://incus.example.com:8443 with TLS certificates
     
-    Sécurité :
-    - Les certificats sont lus directement depuis les fichiers système
-    - Aucun secret n'est stocké en mémoire plus longtemps que nécessaire
-    - Les fichiers temporaires ne sont jamais utilisés
+    Security:
+    - Certificates are read directly from system files
+    - No secrets are stored in memory longer than necessary
+    - Temporary files are never used
     """
 
     def __init__(self, host=None, socket_url=None, https_url=None,
                  client_cert_path=None, client_key_path=None, 
                  ca_cert_path=None, verify_ssl=True):
         """
-        Initialise le client Incus.
+        Initializes the Incus client.
 
         Args:
-            host: Instance IncusHost (prioritaire si fourni)
-            socket_url: URL du socket Unix
-            https_url: URL HTTPS du serveur
-            client_cert_path: Chemin vers le certificat client (.crt)
-            client_key_path: Chemin vers la clé privée (.key)
-            ca_cert_path: Chemin vers le certificat CA (optionnel)
-            verify_ssl: Vérifier le certificat SSL du serveur
+            host: IncusHost instance (priority if provided)
+            socket_url: Unix socket URL
+            https_url: Server HTTPS URL
+            client_cert_path: Path to client certificate (.crt)
+            client_key_path: Path to private key (.key)
+            ca_cert_path: Path to CA certificate (optional)
+            verify_ssl: Verify server SSL certificate
         """
         self.session = None
         self.base_url = None
 
-        # Si un objet IncusHost est passé, extraire la config
+        # If an IncusHost object is passed, extract config
         if host is not None:
             from .models import ConnectionTypeChoices
             if host.connection_type == ConnectionTypeChoices.HTTPS:
@@ -50,7 +50,7 @@ class IncusClient:
             else:
                 socket_url = host.socket_path
 
-        # Configuration selon le type de connexion
+        # Configuration based on connection type
         if https_url:
             self._setup_https(
                 https_url, 
@@ -62,58 +62,58 @@ class IncusClient:
         elif socket_url:
             self._setup_unix_socket(socket_url)
         else:
-            # Fallback sur socket par défaut
+            # Fallback to default socket
             self._setup_unix_socket('http+unix://%2Fvar%2Flib%2Fincus%2Funix.socket')
 
     def _setup_unix_socket(self, socket_url):
-        """Configure la connexion via socket Unix."""
+        """Configures connection via Unix socket."""
         self.base_url = socket_url
         self.session = requests_unixsocket.Session()
-        logger.debug(f"Client Incus configuré en mode Unix socket: {socket_url}")
+        logger.debug(f"Incus client configured in Unix socket mode: {socket_url}")
 
     def _setup_https(self, https_url, client_cert_path, client_key_path, 
                      ca_cert_path, verify_ssl):
         """
-        Configure la connexion via HTTPS avec certificats TLS.
+        Configures connection via HTTPS with TLS certificates.
         
-        Les certificats sont passés directement par leurs chemins de fichiers
-        à la bibliothèque requests, qui les lit de manière sécurisée.
+        Certificates are passed directly by their file paths
+        to the requests library, which reads them securely.
         """
         self.base_url = https_url.rstrip('/')
         self.session = requests.Session()
 
-        # Vérification des fichiers de certificats
+        # Certificate files verification
         if client_cert_path and client_key_path:
-            # Vérifier que les fichiers existent
-            for path, name in [(client_cert_path, 'certificat'), 
-                               (client_key_path, 'clé privée')]:
+            # Check that files exist
+            for path, name in [(client_cert_path, 'certificate'), 
+                               (client_key_path, 'private key')]:
                 if not os.path.isfile(path):
-                    raise FileNotFoundError(f"Fichier {name} introuvable: {path}")
+                    raise FileNotFoundError(f"File {name} not found: {path}")
                 if not os.access(path, os.R_OK):
-                    raise PermissionError(f"Fichier {name} non lisible: {path}")
+                    raise PermissionError(f"File {name} not readable: {path}")
             
-            # requests accepte un tuple (cert, key) avec les chemins de fichiers
-            # C'est la méthode recommandée et sécurisée
+            # requests accepts a tuple (cert, key) with file paths
+            # This is the recommended and secure method
             self.session.cert = (client_cert_path, client_key_path)
-            logger.debug(f"Certificat client configuré: {client_cert_path}")
+            logger.debug(f"Client certificate configured: {client_cert_path}")
 
-        # Configuration de la vérification SSL
+        # SSL verification configuration
         if ca_cert_path and os.path.isfile(ca_cert_path):
-            # Utiliser un CA spécifique pour valider le serveur
+            # Use a specific CA to validate the server
             self.session.verify = ca_cert_path
-            logger.debug(f"CA personnalisé configuré: {ca_cert_path}")
+            logger.debug(f"Custom CA configured: {ca_cert_path}")
         else:
             self.session.verify = verify_ssl
             if not verify_ssl:
-                logger.warning("Vérification SSL désactivée - non recommandé en production!")
-                # Désactiver les avertissements urllib3 pour les certificats non vérifiés
+                logger.warning("SSL verification disabled - not recommended in production!")
+                # Disable urllib3 warnings for unverified certificates
                 import urllib3
                 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-        logger.debug(f"Client Incus configuré en mode HTTPS: {https_url}")
+        logger.debug(f"Incus client configured in HTTPS mode: {https_url}")
 
     def _request(self, method, endpoint, **kwargs):
-        """Effectue une requête HTTP vers l'API Incus."""
+        """Performs an HTTP request to the Incus API."""
         url = f"{self.base_url}{endpoint}"
         
         try:
@@ -122,48 +122,48 @@ class IncusClient:
             return response.json()
             
         except requests.exceptions.SSLError as e:
-            logger.error(f"Erreur SSL lors de la connexion à {url}: {e}")
+            logger.error(f"SSL error connecting to {url}: {e}")
             raise ConnectionError(
-                f"Erreur SSL: {e}. "
-                "Vérifiez les certificats ou le CA, ou désactivez la vérification SSL."
+                f"SSL Error: {e}. "
+                "Check certificates or CA, or disable SSL verification."
             )
         except requests.exceptions.ConnectionError as e:
-            logger.error(f"Impossible de se connecter à {url}: {e}")
-            raise ConnectionError(f"Impossible de se connecter à Incus: {e}")
+            logger.error(f"Unable to connect to {url}: {e}")
+            raise ConnectionError(f"Unable to connect to Incus: {e}")
         except requests.exceptions.Timeout as e:
-            logger.error(f"Timeout lors de la connexion à {url}: {e}")
-            raise ConnectionError(f"Timeout de connexion à Incus: {e}")
+            logger.error(f"Timeout connecting to {url}: {e}")
+            raise ConnectionError(f"Connection timeout to Incus: {e}")
         except Exception as e:
-            logger.error(f"Erreur lors de la requête à {url}: {e}")
+            logger.error(f"Error requesting {url}: {e}")
             raise
 
     def get_instances(self, recursion=1):
         """
-        Récupère la liste des instances avec leurs détails.
+        Retrieves the list of instances with their details.
 
         Args:
-            recursion: Niveau de détail (0=noms, 1=config, 2=état complet)
+            recursion: Detail level (0=names, 1=config, 2=full state)
 
         Returns:
-            Liste des instances
+            List of instances
         """
         data = self._request('GET', f'/1.0/instances?recursion={recursion}')
 
         if data.get('type') != 'sync':
-            logger.error(f"Type de réponse Incus inattendu: {data.get('type')}")
+            logger.error(f"Unexpected Incus response type: {data.get('type')}")
             return []
 
         return data.get('metadata', [])
 
     def get_instance(self, name):
-        """Récupère les détails d'une instance spécifique."""
+        """Retrieves details of a specific instance."""
         data = self._request('GET', f'/1.0/instances/{name}')
         if data.get('type') == 'sync':
             return data.get('metadata')
         return None
 
     def get_instance_state(self, name):
-        """Récupère l'état d'une instance (CPU, mémoire, réseau, etc.)."""
+        """Retrieves the state of an instance (CPU, memory, network, etc.)."""
         data = self._request('GET', f'/1.0/instances/{name}/state')
         if data.get('type') == 'sync':
             return data.get('metadata')
@@ -171,34 +171,34 @@ class IncusClient:
 
     def get_instance_logs(self, name):
         """
-        Récupère la liste des fichiers de logs d'une instance.
+        Retrieves the list of log files for an instance.
         
         Args:
-            name: Nom de l'instance
+            name: Instance name
         
         Returns:
-            list: Liste des noms de fichiers de logs
+            list: List of log filenames
         """
         try:
             data = self._request('GET', f'/1.0/instances/{name}/logs')
             if data.get('type') == 'sync':
-                # Les logs sont retournés comme des URLs, on extrait les noms
+                # Logs are returned as URLs, extract names
                 logs = data.get('metadata', [])
                 return [log.split('/')[-1] for log in logs]
         except Exception as e:
-            logger.debug(f"Impossible de récupérer les logs de {name}: {e}")
+            logger.debug(f"Unable to retrieve logs for {name}: {e}")
         return []
 
     def get_instance_log_content(self, name, log_file):
         """
-        Récupère le contenu d'un fichier de log d'une instance.
+        Retrieves the content of an instance log file.
         
         Args:
-            name: Nom de l'instance
-            log_file: Nom du fichier de log (ex: 'lxc.log')
+            name: Instance name
+            log_file: Log filename (e.g., 'lxc.log')
         
         Returns:
-            str: Contenu du fichier de log
+            str: Log file content
         """
         try:
             url = f"{self.base_url}/1.0/instances/{name}/logs/{log_file}"
@@ -206,25 +206,25 @@ class IncusClient:
             response.raise_for_status()
             return response.text
         except Exception as e:
-            logger.debug(f"Impossible de lire le log {log_file} de {name}: {e}")
+            logger.debug(f"Unable to read log {log_file} for {name}: {e}")
         return None
 
     def get_server_info(self):
-        """Récupère les informations du serveur Incus."""
+        """Retrieves Incus server information."""
         data = self._request('GET', '/1.0')
         if data.get('type') == 'sync':
             return data.get('metadata')
         return None
 
     def get_networks(self):
-        """Récupère la liste des réseaux."""
+        """Retrieves the list of networks."""
         data = self._request('GET', '/1.0/networks?recursion=1')
         if data.get('type') == 'sync':
             return data.get('metadata', [])
         return []
 
     def get_storage_pools(self):
-        """Récupère la liste des pools de stockage."""
+        """Retrieves the list of storage pools."""
         data = self._request('GET', '/1.0/storage-pools?recursion=1')
         if data.get('type') == 'sync':
             return data.get('metadata', [])
@@ -232,15 +232,15 @@ class IncusClient:
 
     def get_storage_volume(self, pool, volume_type, volume_name):
         """
-        Récupère les informations d'un volume de stockage.
+        Retrieves information about a storage volume.
         
         Args:
-            pool: Nom du pool de stockage (ex: 'default')
-            volume_type: Type de volume ('container', 'virtual-machine', 'custom', 'image')
-            volume_name: Nom du volume
+            pool: Storage pool name (e.g., 'default')
+            volume_type: Volume type ('container', 'virtual-machine', 'custom', 'image')
+            volume_name: Volume name
         
         Returns:
-            dict: Informations du volume ou None
+            dict: Volume information or None
         """
         try:
             data = self._request(
@@ -250,31 +250,31 @@ class IncusClient:
             if data.get('type') == 'sync':
                 return data.get('metadata')
         except Exception as e:
-            logger.debug(f"Volume {volume_type}/{volume_name} non trouvé dans {pool}: {e}")
+            logger.debug(f"Volume {volume_type}/{volume_name} not found in {pool}: {e}")
         return None
 
     def get_operations(self, recursion=1):
         """
-        Récupère la liste des opérations (historique des actions).
+        Retrieves the list of operations (action history).
         
-        Les opérations incluent les événements lifecycle des instances :
+        Operations include instance lifecycle events:
         - Creating/Starting/Stopping/Deleting instances
         - Snapshots
         - Backups
         - Migrations
         
         Args:
-            recursion: Niveau de détail (0=IDs, 1=détails complets)
+            recursion: Detail level (0=IDs, 1=full details)
         
         Returns:
-            list: Liste des opérations
+            list: List of operations
         """
         try:
             data = self._request('GET', f'/1.0/operations?recursion={recursion}')
             if data.get('type') == 'sync':
                 metadata = data.get('metadata', {})
                 
-                # Les opérations sont groupées par statut: running, success, failure
+                # Operations are grouped by status: running, success, failure
                 all_operations = []
                 
                 if isinstance(metadata, dict):
@@ -286,137 +286,137 @@ class IncusClient:
                 
                 return all_operations
         except Exception as e:
-            logger.debug(f"Impossible de récupérer les opérations: {e}")
+            logger.debug(f"Unable to retrieve operations: {e}")
         return []
 
     def get_operation(self, operation_id):
         """
-        Récupère les détails d'une opération spécifique.
+        Retrieves details of a specific operation.
         
         Args:
-            operation_id: UUID de l'opération
+            operation_id: Operation UUID
         
         Returns:
-            dict: Détails de l'opération ou None
+            dict: Operation details or None
         """
         try:
             data = self._request('GET', f'/1.0/operations/{operation_id}')
             if data.get('type') == 'sync':
                 return data.get('metadata')
         except Exception as e:
-            logger.debug(f"Opération {operation_id} non trouvée: {e}")
+            logger.debug(f"Operation {operation_id} not found: {e}")
         return None
 
     # ========== Cluster API ==========
 
     def get_cluster(self):
         """
-        Récupère les informations du cluster.
+        Retrieves cluster information.
         
         Returns:
-            dict: Informations du cluster ou None si pas de cluster
+            dict: Cluster information or None if no cluster
         """
         try:
             data = self._request('GET', '/1.0/cluster')
             if data.get('type') == 'sync':
                 return data.get('metadata')
         except Exception as e:
-            logger.debug(f"Pas de cluster configuré: {e}")
+            logger.debug(f"No cluster configured: {e}")
         return None
 
     def get_cluster_members(self, recursion=1):
         """
-        Récupère la liste des membres du cluster.
+        Retrieves the list of cluster members.
         
         Args:
-            recursion: Niveau de détail (0=URLs, 1=détails complets)
+            recursion: Detail level (0=URLs, 1=full details)
         
         Returns:
-            list: Liste des membres du cluster
+            list: List of cluster members
         """
         try:
             data = self._request('GET', f'/1.0/cluster/members?recursion={recursion}')
             if data.get('type') == 'sync':
                 return data.get('metadata', [])
         except Exception as e:
-            logger.debug(f"Impossible de récupérer les membres du cluster: {e}")
+            logger.debug(f"Unable to retrieve cluster members: {e}")
         return []
 
     def get_cluster_member(self, name):
         """
-        Récupère les détails d'un membre du cluster.
+        Retrieves details of a cluster member.
         
         Args:
-            name: Nom du membre
+            name: Member name
         
         Returns:
-            dict: Détails du membre ou None
+            dict: Member details or None
         """
         try:
             data = self._request('GET', f'/1.0/cluster/members/{name}')
             if data.get('type') == 'sync':
                 return data.get('metadata')
         except Exception as e:
-            logger.debug(f"Membre {name} non trouvé: {e}")
+            logger.debug(f"Member {name} not found: {e}")
         return None
 
     def get_cluster_member_state(self, name):
         """
-        Récupère l'état d'un membre du cluster (CPU, mémoire, etc.).
+        Retrieves the state of a cluster member (CPU, memory, etc.).
         
         Args:
-            name: Nom du membre
+            name: Member name
         
         Returns:
-            dict: État du membre ou None
+            dict: Member state or None
         """
         try:
             data = self._request('GET', f'/1.0/cluster/members/{name}/state')
             if data.get('type') == 'sync':
                 return data.get('metadata')
         except Exception as e:
-            logger.debug(f"État du membre {name} non disponible: {e}")
+            logger.debug(f"Member state {name} not available: {e}")
         return None
 
     def get_cluster_groups(self, recursion=1):
         """
-        Récupère la liste des groupes de cluster.
+        Retrieves the list of cluster groups.
         
         Args:
-            recursion: Niveau de détail
+            recursion: Detail level
         
         Returns:
-            list: Liste des groupes de cluster
+            list: List of cluster groups
         """
         try:
             data = self._request('GET', f'/1.0/cluster/groups?recursion={recursion}')
             if data.get('type') == 'sync':
                 return data.get('metadata', [])
         except Exception as e:
-            logger.debug(f"Impossible de récupérer les groupes de cluster: {e}")
+            logger.debug(f"Unable to retrieve cluster groups: {e}")
         return []
 
     def get_cluster_group(self, name):
         """
-        Récupère les détails d'un groupe de cluster.
+        Retrieves details of a cluster group.
         
         Args:
-            name: Nom du groupe
+            name: Group name
         
         Returns:
-            dict: Détails du groupe ou None
+            dict: Group details or None
         """
         try:
             data = self._request('GET', f'/1.0/cluster/groups/{name}')
             if data.get('type') == 'sync':
                 return data.get('metadata')
         except Exception as e:
-            logger.debug(f"Groupe {name} non trouvé: {e}")
+            logger.debug(f"Group {name} not found: {e}")
         return None
 
     def test_connection(self):
         """
-        Teste la connexion au serveur Incus.
+        Tests connection to the Incus server.
 
         Returns:
             tuple: (success: bool, message: str, extra_info: dict)
@@ -425,10 +425,10 @@ class IncusClient:
             info = self.get_server_info()
             if info:
                 env = info.get('environment', {})
-                server_name = env.get('server_name', 'Inconnu')
-                version = env.get('server_version', 'Inconnue')
+                server_name = env.get('server_name', 'Unknown')
+                version = env.get('server_version', 'Unknown')
                 
-                # Vérifier si c'est un cluster
+                # Check if it is a cluster
                 cluster_info = self.get_cluster()
                 cluster_enabled = cluster_info.get('enabled', False) if cluster_info else False
                 
@@ -441,15 +441,15 @@ class IncusClient:
                 if cluster_enabled:
                     members = self.get_cluster_members()
                     extra_info['cluster_members'] = len(members)
-                    return True, f"Connecté à {server_name} (version {version}) - Cluster avec {len(members)} nœuds", extra_info
+                    return True, f"Connected to {server_name} (version {version}) - Cluster with {len(members)} nodes", extra_info
                 
-                return True, f"Connecté à {server_name} (version {version})", extra_info
-            return False, "Réponse invalide du serveur", {}
+                return True, f"Connected to {server_name} (version {version})", extra_info
+            return False, "Invalid server response", {}
         except FileNotFoundError as e:
-            return False, f"Fichier certificat manquant: {e}", {}
+            return False, f"Missing certificate file: {e}", {}
         except PermissionError as e:
-            return False, f"Permission refusée: {e}", {}
+            return False, f"Permission denied: {e}", {}
         except ConnectionError as e:
             return False, str(e), {}
         except Exception as e:
-            return False, f"Erreur inattendue: {e}", {}
+            return False, f"Unexpected error: {e}", {}

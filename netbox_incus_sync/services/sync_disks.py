@@ -1,5 +1,5 @@
 """
-Service de synchronisation des disques virtuels Incus vers NetBox.
+Incus virtual disk synchronization service to NetBox.
 """
 
 from virtualization.models import VirtualDisk
@@ -9,45 +9,45 @@ from .sync_utils import parse_size
 
 class DiskSyncService:
     """
-    Service pour synchroniser les disques des instances Incus vers NetBox VirtualDisk.
+    Service to synchronize Incus instance disks to NetBox VirtualDisks.
     """
     
     def __init__(self, logger=None):
         """
-        Initialise le service.
+        Initializes the service.
         
         Args:
-            logger: Logger pour les messages (optionnel)
+            logger: Logger for messages (optional)
         """
         self.logger = logger
     
     def log(self, level, message):
-        """Log un message si logger disponible."""
+        """Log a message if logger is available."""
         if self.logger:
             getattr(self.logger, level)(message)
     
     def sync_instance_disks(self, vm, instance_data, client):
         """
-        Synchronise les disques d'une instance Incus vers NetBox.
+        Synchronizes Incus instance disks to NetBox.
         
         Args:
-            vm: Instance VirtualMachine NetBox
-            instance_data: Données de l'instance Incus
-            client: Client Incus pour requêtes supplémentaires
+            vm: NetBox VirtualMachine instance
+            instance_data: Incus instance data
+            client: Incus Client for additional requests
         
         Returns:
-            int: Nombre de disques synchronisés
+            int: Number of synchronized disks
         """
         disks_synced = 0
         
-        # Récupérer les devices (expanded pour avoir ceux hérités du profil)
+        # Get devices (expanded to include those inherited from profile)
         devices = instance_data.get('expanded_devices', {})
         
         if not devices:
-            # Fallback sur devices directs
+            # Fallback to direct devices
             devices = instance_data.get('devices', {})
         
-        # Filtrer pour ne garder que les disques
+        # Filter to keep only disks
         disk_devices = {
             name: config 
             for name, config in devices.items() 
@@ -55,49 +55,49 @@ class DiskSyncService:
         }
         
         if not disk_devices:
-            self.log('info', f"    Aucun disque trouvé pour {vm.name}")
+            self.log('info', f"    No disk found for {vm.name}")
             return 0
         
-        # Tracker les noms de disques actuels pour le nettoyage
+        # Track current disk names for cleanup
         current_disk_names = set()
         
         for disk_name, disk_config in disk_devices.items():
             current_disk_names.add(disk_name)
             
-            # Synchroniser le disque
+            # Sync disk
             disk, created = self._sync_disk(vm, disk_name, disk_config, client)
             
             if disk:
                 disks_synced += 1
                 if created:
-                    self.log('info', f"    Disque créé: {disk_name} ({disk.size} MB)")
+                    self.log('info', f"    Disk created: {disk_name} ({disk.size} MB)")
                 else:
-                    self.log('info', f"    Disque mis à jour: {disk_name} ({disk.size} MB)")
+                    self.log('info', f"    Disk updated: {disk_name} ({disk.size} MB)")
         
-        # Nettoyer les disques obsolètes
+        # Cleanup obsolete disks
         self._cleanup_old_disks(vm, current_disk_names)
         
         return disks_synced
     
     def _sync_disk(self, vm, disk_name, disk_config, client):
         """
-        Synchronise un disque individuel.
+        Synchronizes an individual disk.
         
         Args:
-            vm: Instance VirtualMachine NetBox
-            disk_name: Nom du disque (ex: 'root', 'data')
-            disk_config: Configuration du disque depuis Incus
-            client: Client Incus
+            vm: NetBox VirtualMachine instance
+            disk_name: Disk name (e.g., 'root', 'data')
+            disk_config: Disk configuration from Incus
+            client: Incus Client
         
         Returns:
             tuple: (VirtualDisk, created)
         """
         path = disk_config.get('path', '')
         pool = disk_config.get('pool', '')
-        source = disk_config.get('source', '')  # Pour les volumes additionnels
+        source = disk_config.get('source', '')  # For additional volumes
         size_raw = disk_config.get('size', '')
         
-        # Calculer la taille
+        # Calculate size
         size_mb = self._get_disk_size(
             size_raw=size_raw,
             pool=pool,
@@ -107,13 +107,13 @@ class DiskSyncService:
             client=client
         )
         
-        # Déterminer le type de disque
+        # Determine disk type
         disk_type = 'root' if disk_name == 'root' or path == '/' else 'data'
         
-        # Description simplifiée (les détails sont dans les custom fields)
+        # Simplified description (details are in custom fields)
         description = f"Synced from Incus"
         
-        # Créer ou mettre à jour le disque
+        # Create or update disk
         defaults = {
             'size': size_mb or 0,
             'description': description,
@@ -125,21 +125,21 @@ class DiskSyncService:
             defaults=defaults
         )
         
-        # Mettre à jour les Custom Fields
+        # Update Custom Fields
         self._update_disk_custom_fields(disk, path, pool, source, disk_type)
         
         return disk, created
     
     def _update_disk_custom_fields(self, disk, path, pool, source, disk_type):
         """
-        Met à jour les Custom Fields du disque.
+        Updates Disk Custom Fields.
         
         Args:
-            disk: VirtualDisk NetBox
-            path: Point de montage
-            pool: Nom du pool de stockage
-            source: Nom du volume source (pour volumes additionnels)
-            disk_type: Type de disque (root, data)
+            disk: NetBox VirtualDisk
+            path: Mount point
+            pool: Storage pool name
+            source: Source volume name (for additional volumes)
+            disk_type: Disk type (root, data)
         """
         updated = False
         
@@ -153,12 +153,12 @@ class DiskSyncService:
             disk.custom_field_data['incus_storage_pool'] = pool
             updated = True
         
-        # Volume Source (seulement si défini)
+        # Volume Source (only if defined)
         if source and disk.custom_field_data.get('incus_volume_source') != source:
             disk.custom_field_data['incus_volume_source'] = source
             updated = True
         elif not source and 'incus_volume_source' in disk.custom_field_data:
-            # Retirer le champ si plus de source
+            # Remove field if no source
             del disk.custom_field_data['incus_volume_source']
             updated = True
         
@@ -172,29 +172,29 @@ class DiskSyncService:
     
     def _get_disk_size(self, size_raw, pool, source, disk_name, vm_name, client):
         """
-        Détermine la taille d'un disque.
+        Determines disk size.
         
-        Ordre de priorité :
-        1. Taille définie directement sur le device (size_raw)
-        2. Pour les volumes : taille du volume dans le pool
-        3. Pour root sans taille : taille utilisée par l'instance
+        Priority order:
+        1. Size defined directly on device (size_raw)
+        2. For volumes: volume size in pool
+        3. For root without size: size used by instance
         
         Returns:
-            int: Taille en MB ou 0 si inconnue
+            int: Size in MB or 0 if unknown
         """
-        # 1. Taille définie directement
+        # 1. Size defined directly
         if size_raw:
             size_mb = parse_size(size_raw)
             if size_mb:
                 return size_mb
         
-        # 2. Pour les volumes additionnels, chercher dans le pool
+        # 2. For additional volumes, check in pool
         if source and pool:
             size_mb = self._get_volume_size(client, pool, source)
             if size_mb:
                 return size_mb
         
-        # 3. Pour le disque root, essayer de récupérer l'usage
+        # 3. For root disk, try to get usage
         if disk_name == 'root' and pool:
             size_mb = self._get_instance_disk_usage(client, pool, vm_name)
             if size_mb:
@@ -204,18 +204,18 @@ class DiskSyncService:
     
     def _get_volume_size(self, client, pool, volume_name):
         """
-        Récupère la taille d'un volume de stockage.
+        Retrieves storage volume size.
         
         Args:
-            client: Client Incus
-            pool: Nom du pool de stockage
-            volume_name: Nom du volume
+            client: Incus Client
+            pool: Storage pool name
+            volume_name: Volume name
         
         Returns:
-            int: Taille en MB ou None
+            int: Size in MB or None
         """
         try:
-            # Essayer d'abord comme volume custom
+            # First try as custom volume
             volume_info = client.get_storage_volume(pool, 'custom', volume_name)
             if volume_info:
                 config = volume_info.get('config', {})
@@ -223,27 +223,27 @@ class DiskSyncService:
                 if size_raw:
                     return parse_size(size_raw)
         except Exception as e:
-            self.log('debug', f"    Volume {volume_name} non trouvé dans {pool}: {e}")
+            self.log('debug', f"    Volume {volume_name} not found in {pool}: {e}")
         
         return None
     
     def _get_instance_disk_usage(self, client, pool, instance_name):
         """
-        Récupère l'utilisation disque d'une instance.
+        Retrieves instance disk usage.
         
         Args:
-            client: Client Incus
-            pool: Nom du pool de stockage
-            instance_name: Nom de l'instance
+            client: Incus Client
+            pool: Storage pool name
+            instance_name: Instance name
         
         Returns:
-            int: Taille en MB ou None
+            int: Size in MB or None
         """
         try:
-            # Récupérer les infos du volume de l'instance
+            # Get instance volume info
             volume_info = client.get_storage_volume(pool, 'container', instance_name)
             if not volume_info:
-                # Essayer avec 'virtual-machine' pour les VMs
+                # Try with 'virtual-machine' for VMs
                 volume_info = client.get_storage_volume(pool, 'virtual-machine', instance_name)
             
             if volume_info:
@@ -252,22 +252,22 @@ class DiskSyncService:
                 if size_raw:
                     return parse_size(size_raw)
         except Exception as e:
-            self.log('debug', f"    Usage disque non disponible pour {instance_name}: {e}")
+            self.log('debug', f"    Disk usage not available for {instance_name}: {e}")
         
         return None
     
     def _cleanup_old_disks(self, vm, current_disk_names):
         """
-        Supprime les disques qui n'existent plus dans Incus.
+        Deletes disks that no longer exist in Incus.
         
         Args:
-            vm: Instance VirtualMachine
-            current_disk_names: Set des noms de disques actuels
+            vm: VirtualMachine instance
+            current_disk_names: Set of current disk names
         """
         old_disks = VirtualDisk.objects.filter(
             virtual_machine=vm
         ).exclude(name__in=current_disk_names)
         
         for old_disk in old_disks:
-            self.log('info', f"    Disque supprimé: {old_disk.name}")
+            self.log('info', f"    Disk deleted: {old_disk.name}")
             old_disk.delete()

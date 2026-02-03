@@ -1,7 +1,7 @@
 """
-Service de synchronisation réseau des instances Incus vers NetBox.
+Incus instance network synchronization service to NetBox.
 
-Compatible NetBox 4.2+ où les adresses MAC sont des objets séparés.
+Compatible with NetBox 4.2+ where MAC addresses are separate objects.
 """
 
 from virtualization.models import VMInterface
@@ -12,39 +12,39 @@ from django.contrib.contenttypes.models import ContentType
 
 class NetworkSyncService:
     """
-    Service pour synchroniser les interfaces réseau et IPs des instances Incus.
+    Service to synchronize network interfaces and IPs of Incus instances.
     """
     
     def __init__(self, logger=None):
         """
-        Initialise le service.
+        Initializes the service.
         
         Args:
-            logger: Logger pour les messages (optionnel)
+            logger: Logger for messages (optional)
         """
         self.logger = logger
         self._vminterface_ct = None
     
     def log(self, level, message):
-        """Log un message si logger disponible."""
+        """Log a message if logger is available."""
         if self.logger:
             getattr(self.logger, level)(message)
     
     @property
     def vminterface_content_type(self):
-        """Retourne le ContentType pour VMInterface (cached)."""
+        """Returns ContentType for VMInterface (cached)."""
         if self._vminterface_ct is None:
             self._vminterface_ct = ContentType.objects.get_for_model(VMInterface)
         return self._vminterface_ct
     
     def sync_instance_network(self, vm, instance_data, client):
         """
-        Synchronise les interfaces réseau et IPs d'une instance.
+        Synchronizes network interfaces and IPs of an instance.
         
         Args:
-            vm: Instance VirtualMachine NetBox
-            instance_data: Données de l'instance Incus
-            client: Client Incus pour requêtes supplémentaires
+            vm: NetBox VirtualMachine instance
+            instance_data: Incus instance data
+            client: Incus Client for additional requests
         
         Returns:
             tuple: (interfaces_count, ips_count)
@@ -52,124 +52,124 @@ class NetworkSyncService:
         interfaces_synced = 0
         ips_synced = 0
         
-        # Récupérer l'état réseau
+        # Get network state
         network_state = self._get_network_state(vm.name, instance_data, client)
         
         if not network_state:
             return 0, 0
         
-        # Récupérer les devices pour les infos de connexion (bridge, parent)
+        # Get devices for connection info (bridge, parent)
         devices = instance_data.get('expanded_devices', {})
         if not devices:
             devices = instance_data.get('devices', {})
         
-        # Pour tracker les IPs primaires candidates
+        # To track primary IP candidates
         primary_ip4_candidate = None
         primary_ip6_candidate = None
         
-        # Parcourir les interfaces
+        # Iterate over interfaces
         current_iface_names = set()
         
         for iface_name, iface_data in network_state.items():
-            # Ignorer loopback
+            # Ignore loopback
             if iface_name == 'lo':
                 continue
             
             current_iface_names.add(iface_name)
             
-            # Récupérer les infos du device correspondant
+            # Get corresponding device info
             device_config = devices.get(iface_name, {})
             
-            # Sync de l'interface
+            # Sync interface
             interface, iface_created = self._sync_interface(
                 vm, iface_name, iface_data, device_config
             )
             interfaces_synced += 1
             
             if iface_created:
-                self.log('info', f"    Interface créée: {iface_name}")
+                self.log('info', f"    Interface created: {iface_name}")
             
-            # Sync de l'adresse MAC (NetBox 4.2+) et définir comme primaire
+            # Sync MAC address (NetBox 4.2+) and set as primary
             hwaddr = iface_data.get('hwaddr', '')
             if hwaddr and hwaddr != '00:00:00:00:00:00':
                 self._sync_mac_address(interface, hwaddr)
             
-            # Sync des IPs et récupérer les candidates pour IP primaire
+            # Sync IPs and get candidates for primary IP
             ip4, ip6, ip_count = self._sync_interface_ips(interface, iface_data, vm.name)
             ips_synced += ip_count
             
-            # Garder la première IP globale trouvée comme candidate
+            # Keep the first global IP found as candidate
             if ip4 and not primary_ip4_candidate:
                 primary_ip4_candidate = ip4
             if ip6 and not primary_ip6_candidate:
                 primary_ip6_candidate = ip6
         
-        # Définir les IPs primaires de la VM
+        # Set primary IPs for the VM
         self._set_primary_ips(vm, primary_ip4_candidate, primary_ip6_candidate)
         
-        # Nettoyer les interfaces obsolètes
+        # Cleanup obsolete interfaces
         self._cleanup_old_interfaces(vm, current_iface_names)
         
         return interfaces_synced, ips_synced
     
     def _get_network_state(self, vm_name, instance_data, client):
         """
-        Récupère l'état réseau d'une instance.
+        Retrieves the network state of an instance.
         
         Args:
-            vm_name: Nom de l'instance
-            instance_data: Données de l'instance (peut contenir state)
-            client: Client Incus
+            vm_name: Instance name
+            instance_data: Instance data (may contain state)
+            client: Incus Client
         
         Returns:
-            dict: État réseau ou None
+            dict: Network state or None
         """
-        # D'abord essayer depuis instance_data
+        # First try from instance_data
         state = instance_data.get('state', {})
         network_state = state.get('network', {})
         
         if network_state:
             return network_state
         
-        # Sinon, requête séparée
+        # Otherwise, separate request
         try:
             instance_state = client.get_instance_state(vm_name)
             if instance_state:
                 return instance_state.get('network', {})
         except Exception as e:
-            self.log('warning', f"    Impossible de récupérer l'état réseau de {vm_name}: {e}")
+            self.log('warning', f"    Unable to retrieve network state for {vm_name}: {e}")
         
         return None
     
     def _sync_interface(self, vm, iface_name, iface_data, device_config):
         """
-        Synchronise une interface réseau.
+        Synchronizes a network interface.
         
-        Note: Dans NetBox 4.2+, mac_address n'est plus un champ direct.
-        Il faut créer un objet MACAddress séparé.
+        Note: In NetBox 4.2+, mac_address is no longer a direct field.
+        A separate MACAddress object must be created.
         
         Args:
-            vm: VirtualMachine NetBox
-            iface_name: Nom de l'interface (eth0, etc.)
-            iface_data: Données de l'état réseau depuis Incus
-            device_config: Configuration du device depuis expanded_devices
+            vm: NetBox VirtualMachine
+            iface_name: Interface name (eth0, etc.)
+            iface_data: Network state data from Incus
+            device_config: Device configuration from expanded_devices
         
         Returns:
             tuple: (interface, created)
         """
         iface_state = iface_data.get('state', 'down')
         mtu = iface_data.get('mtu', None)
-        host_name = iface_data.get('host_name', '')  # vethXXX côté hôte
+        host_name = iface_data.get('host_name', '')  # vethXXX on host side
         
-        # Infos de connexion depuis device_config
-        network = device_config.get('network', '')  # Bridge managé (incusbr0)
-        parent = device_config.get('parent', '')    # Interface parente directe
+        # Connection info from device_config
+        network = device_config.get('network', '')  # Managed bridge (incusbr0)
+        parent = device_config.get('parent', '')    # Direct parent interface
         nictype = device_config.get('nictype', '')  # bridged, macvlan, etc.
         
-        # Le bridge effectif est soit 'network' soit 'parent'
+        # Effective bridge is either 'network' or 'parent'
         bridge = network or parent
         
-        # Construire une description simplifiée (les détails sont dans les custom fields)
+        # Build simplified description (details are in custom fields)
         description = f"Synced from Incus | State: {iface_state}"
         
         defaults = {
@@ -177,7 +177,7 @@ class NetworkSyncService:
             'description': description,
         }
         
-        # MTU si disponible
+        # MTU if available
         if mtu:
             defaults['mtu'] = mtu
         
@@ -187,20 +187,20 @@ class NetworkSyncService:
             defaults=defaults
         )
         
-        # Mettre à jour les Custom Fields
+        # Update Custom Fields
         self._update_interface_custom_fields(interface, bridge, host_name, nictype)
         
         return interface, created
     
     def _update_interface_custom_fields(self, interface, bridge, host_name, nictype):
         """
-        Met à jour les Custom Fields de l'interface.
+        Updates Interface Custom Fields.
         
         Args:
-            interface: VMInterface NetBox
-            bridge: Nom du bridge/network Incus
-            host_name: Interface veth côté hôte
-            nictype: Type de NIC
+            interface: NetBox VMInterface
+            bridge: Incus bridge/network name
+            host_name: veth interface on host side
+            nictype: NIC type
         """
         updated = False
         
@@ -224,27 +224,27 @@ class NetworkSyncService:
     
     def _sync_mac_address(self, interface, hwaddr):
         """
-        Synchronise l'adresse MAC d'une interface (NetBox 4.2+).
+        Synchronizes the MAC address of an interface (NetBox 4.2+).
         
-        Dans NetBox 4.2+, les adresses MAC sont des objets séparés
-        liés aux interfaces via une relation générique.
-        Cette méthode crée la MAC et la définit comme primaire.
+        In NetBox 4.2+, MAC addresses are separate objects
+        linked to interfaces via a generic relation.
+        This method creates the MAC and sets it as primary.
         
         Args:
-            interface: Instance VMInterface
-            hwaddr: Adresse MAC (string)
+            interface: VMInterface instance
+            hwaddr: MAC address (string)
         """
         try:
-            # Normaliser l'adresse MAC (majuscules)
+            # Normalize MAC address (upper case)
             hwaddr_normalized = hwaddr.upper()
             
-            # Vérifier si cette interface a déjà cette MAC comme primaire
+            # Check if this interface already has this MAC as primary
             current_primary = interface.primary_mac_address
             if current_primary and str(current_primary.mac_address).upper() == hwaddr_normalized:
-                # Déjà configuré correctement
+                # Already configured correctly
                 return
             
-            # Chercher si cette MAC existe déjà et est assignée à cette interface
+            # Check if this MAC already exists and is assigned to this interface
             existing_mac = MACAddress.objects.filter(
                 mac_address=hwaddr_normalized,
                 assigned_object_type=self.vminterface_content_type,
@@ -252,48 +252,48 @@ class NetworkSyncService:
             ).first()
             
             if existing_mac:
-                # MAC existe et est déjà assignée à cette interface
+                # MAC exists and is already assigned to this interface
                 mac_obj = existing_mac
             else:
-                # Chercher si cette MAC existe mais assignée ailleurs
+                # Check if this MAC exists but assigned elsewhere
                 existing_mac_elsewhere = MACAddress.objects.filter(
                     mac_address=hwaddr_normalized
                 ).first()
                 
                 if existing_mac_elsewhere:
-                    # Réassigner à cette interface
+                    # Reassign to this interface
                     existing_mac_elsewhere.assigned_object_type = self.vminterface_content_type
                     existing_mac_elsewhere.assigned_object_id = interface.pk
                     existing_mac_elsewhere.save()
                     mac_obj = existing_mac_elsewhere
-                    self.log('info', f"    MAC réassignée: {hwaddr_normalized}")
+                    self.log('info', f"    MAC reassigned: {hwaddr_normalized}")
                 else:
-                    # Créer une nouvelle MAC
+                    # Create new MAC
                     mac_obj = MACAddress.objects.create(
                         mac_address=hwaddr_normalized,
                         assigned_object_type=self.vminterface_content_type,
                         assigned_object_id=interface.pk,
                         description=f"Synced from Incus - {interface.virtual_machine.name}",
                     )
-                    self.log('info', f"    MAC créée: {hwaddr_normalized}")
+                    self.log('info', f"    MAC created: {hwaddr_normalized}")
             
-            # Définir comme primaire seulement si pas déjà fait
+            # Set as primary only if not already done
             if interface.primary_mac_address_id != mac_obj.pk:
                 interface.primary_mac_address = mac_obj
                 interface.save()
                 
         except Exception as e:
-            self.log('warning', f"    Erreur lors de la sync MAC {hwaddr}: {e}")
+            self.log('warning', f"    Error syncing MAC {hwaddr}: {e}")
     
     def _sync_interface_ips(self, interface, iface_data, vm_name):
         """
-        Synchronise les adresses IP d'une interface.
+        Synchronizes IP addresses of an interface.
         
         Returns:
-            tuple: (first_ipv4, first_ipv6, count)
-                - first_ipv4: Première IPv4 globale trouvée (ou None)
-                - first_ipv6: Première IPv6 globale trouvée (ou None)
-                - count: Nombre total d'IPs synchronisées
+            tuple: (first_ipv_4, first_ipv_6, count)
+                - first_ipv_4: First global IPv4 found (or None)
+                - first_ipv_6: First global IPv6 found (or None)
+                - count: Total number of IPs synchronized
         """
         ips_synced = 0
         first_ipv4 = None
@@ -307,14 +307,14 @@ class NetworkSyncService:
             ip_scope = addr_info.get('scope', '')
             ip_family = addr_info.get('family', '')
             
-            # Ignorer les adresses link-local et localhost
+            # Ignore link-local and localhost addresses
             if ip_scope in ('link', 'local'):
                 continue
             
             if not ip_address or not ip_netmask:
                 continue
             
-            # Construire l'adresse CIDR
+            # Build CIDR address
             ip_cidr = f"{ip_address}/{ip_netmask}"
             
             try:
@@ -322,41 +322,41 @@ class NetworkSyncService:
                 if ip_obj:
                     ips_synced += 1
                     
-                    # Garder la première IP de chaque famille comme candidate primaire
+                    # Keep the first IP of each family as primary candidate
                     if ip_family == 'inet' and first_ipv4 is None:
                         first_ipv4 = ip_obj
                     elif ip_family == 'inet6' and first_ipv6 is None:
                         first_ipv6 = ip_obj
                         
             except Exception as e:
-                self.log('warning', f"    Erreur lors de la sync IP {ip_cidr}: {e}")
+                self.log('warning', f"    Error syncing IP {ip_cidr}: {e}")
         
         return first_ipv4, first_ipv6, ips_synced
     
     def _sync_ip_address(self, ip_cidr, interface, vm_name):
         """
-        Synchronise une adresse IP.
+        Synchronizes an IP address.
         
         Returns:
-            IPAddress ou None
+            IPAddress or None
         """
-        # Chercher d'abord si cette IP existe déjà
+        # Check first if this IP already exists
         existing_ip = IPAddress.objects.filter(address=ip_cidr).first()
         
         if existing_ip:
-            # Vérifier si elle est déjà assignée à cette interface
+            # Check if it is already assigned to this interface
             if (existing_ip.assigned_object_id == interface.pk and 
                 existing_ip.assigned_object_type == self.vminterface_content_type):
-                # Déjà correctement assignée
+                # Already correctly assigned
                 return existing_ip
             
-            # Réassigner à cette interface
+            # Reassign to this interface
             existing_ip.assigned_object_type = self.vminterface_content_type
             existing_ip.assigned_object_id = interface.pk
             existing_ip.save()
             return existing_ip
         
-        # Créer une nouvelle IP
+        # Create new IP
         ip_obj = IPAddress.objects.create(
             address=ip_cidr,
             assigned_object_type=self.vminterface_content_type,
@@ -364,83 +364,83 @@ class NetworkSyncService:
             description=f"Incus instance: {vm_name} ({interface.name})",
         )
         
-        self.log('info', f"    IP créée: {ip_cidr} sur {interface.name}")
+        self.log('info', f"    IP created: {ip_cidr} on {interface.name}")
         return ip_obj
     
     def _set_primary_ips(self, vm, ip4, ip6):
         """
-        Définit les IPs primaires de la VM.
+        Sets the primary IPs for the VM.
         
-        Gère correctement le cas où l'IP est déjà primaire sur une autre VM
-        (ce qui peut arriver lors d'un renommage ou d'une reconstruction).
+        Correctly handles cases where the IP is already primary on another VM
+        (which can happen during a rename or rebuild).
         
         Args:
-            vm: Instance VirtualMachine
-            ip4: IPAddress IPv4 candidate (ou None)
-            ip6: IPAddress IPv6 candidate (ou None)
+            vm: VirtualMachine instance
+            ip4: Candidate IPv4 IPAddress (or None)
+            ip6: Candidate IPv6 IPAddress (or None)
         """
         from virtualization.models import VirtualMachine
         
         updated = False
         
-        # Définir IPv4 primaire
+        # Set primary IPv4
         if ip4 and vm.primary_ip4_id != ip4.pk:
-            # Vérifier si cette IP est déjà primaire sur une autre VM
+            # Check if this IP is already primary on another VM
             other_vm = VirtualMachine.objects.filter(primary_ip4=ip4).exclude(pk=vm.pk).first()
             if other_vm:
-                # Retirer l'IP primaire de l'autre VM
-                self.log('warning', f"    IP {ip4.address} était primaire sur {other_vm.name}, réassignation...")
+                # Remove primary IP from other VM
+                self.log('warning', f"    IP {ip4.address} was primary on {other_vm.name}, reassigning...")
                 other_vm.primary_ip4 = None
                 other_vm.save()
             
             vm.primary_ip4 = ip4
             updated = True
-            self.log('info', f"    IP primaire v4: {ip4.address}")
+            self.log('info', f"    Primary v4 IP: {ip4.address}")
         
-        # Définir IPv6 primaire
+        # Set primary IPv6
         if ip6 and vm.primary_ip6_id != ip6.pk:
-            # Vérifier si cette IP est déjà primaire sur une autre VM
+            # Check if this IP is already primary on another VM
             other_vm = VirtualMachine.objects.filter(primary_ip6=ip6).exclude(pk=vm.pk).first()
             if other_vm:
-                # Retirer l'IP primaire de l'autre VM
-                self.log('warning', f"    IP {ip6.address} était primaire sur {other_vm.name}, réassignation...")
+                # Remove primary IP from other VM
+                self.log('warning', f"    IP {ip6.address} was primary on {other_vm.name}, reassigning...")
                 other_vm.primary_ip6 = None
                 other_vm.save()
             
             vm.primary_ip6 = ip6
             updated = True
-            self.log('info', f"    IP primaire v6: {ip6.address}")
+            self.log('info', f"    Primary v6 IP: {ip6.address}")
         
         if updated:
             vm.save()
     
     def _cleanup_old_interfaces(self, vm, current_iface_names):
         """
-        Supprime les interfaces qui n'existent plus.
+        Deletes interfaces that no longer exist.
         
         Args:
-            vm: Instance VirtualMachine
-            current_iface_names: Set des noms d'interfaces actuelles
+            vm: VirtualMachine instance
+            current_iface_names: Set of current interface names
         """
         old_interfaces = VMInterface.objects.filter(
             virtual_machine=vm
         ).exclude(name__in=current_iface_names)
         
         for old_iface in old_interfaces:
-            self.log('info', f"    Interface supprimée: {old_iface.name}")
+            self.log('info', f"    Interface deleted: {old_iface.name}")
             old_iface.delete()
     
     def log_networks_info(self, networks):
         """
-        Log les informations sur les réseaux Incus.
+        Logs information about Incus networks.
         
         Args:
-            networks: Liste des réseaux depuis l'API Incus
+            networks: List of networks from Incus API
         """
         if not networks:
             return
         
-        self.log('info', f"  Réseaux Incus: {len(networks)}")
+        self.log('info', f"  Incus Networks: {len(networks)}")
         for net in networks:
             net_name = net.get('name', 'unknown')
             net_type = net.get('type', 'unknown')

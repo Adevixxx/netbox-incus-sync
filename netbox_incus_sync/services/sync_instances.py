@@ -1,14 +1,10 @@
 """
-Service de synchronisation des instances Incus vers NetBox.
+Service to synchronize Incus instances to NetBox.
 
-Utilise les objets natifs NetBox :
-- ClusterType : Type "Incus" créé automatiquement
-- Cluster : Un cluster par hôte Incus (si clustering Incus activé)
-- VirtualMachine : Les instances Incus
-
-Identification des instances :
-- Utilise l'UUID Incus (volatile.uuid) comme identifiant unique
-- Permet de gérer correctement les renommages d'instances
+Uses native NetBox objects:
+- ClusterType: "Incus" type created automatically
+- Cluster: One cluster per Incus host (if Incus clustering is enabled)
+- VirtualMachine: The Incus instances
 """
 
 from datetime import datetime
@@ -19,130 +15,126 @@ from extras.models import Tag
 from .sync_utils import parse_memory, parse_size, ensure_tags_exist
 
 
-# Slug du ClusterType Incus
+# Incus ClusterType Slug
 INCUS_CLUSTER_TYPE_SLUG = 'incus'
 
 
 class InstanceSyncService:
     """
-    Service pour synchroniser les instances Incus vers NetBox VirtualMachine.
+    Service to synchronize Incus instances to NetBox VirtualMachines.
     
-    Gestion des clusters :
-    - Si Incus n'est PAS en mode cluster : les VMs sont créées sans cluster
-      (sauf si default_cluster est défini manuellement sur l'IncusHost)
-    - Si Incus EST en mode cluster : un Cluster NetBox est créé automatiquement
-      et toutes les VMs y sont assignées
-    
-    Identification des instances :
-    - Utilise l'UUID Incus (config['volatile.uuid']) comme identifiant unique
-    - Permet de suivre les instances même après un renommage
+    Cluster management:
+    - If Incus is NOT in cluster mode: VMs are created without a cluster
+      (unless default_cluster is manually defined on the IncusHost)
+    - If Incus IS in cluster mode: A NetBox Cluster is automatically created
+      and all VMs are assigned to it
     """
     
     def __init__(self, logger=None):
         """
-        Initialise le service.
+        Initializes the service.
         
         Args:
-            logger: Logger pour les messages (optionnel)
+            logger: Logger for messages (optional)
         """
         self.logger = logger
         self.tags = {}
         self._cluster_type = None
     
     def log(self, level, message):
-        """Log un message si logger disponible."""
+        """Log a message if logger is available."""
         if self.logger:
             getattr(self.logger, level)(message)
     
     def setup(self):
-        """Prépare le service (crée les tags, etc.)."""
+        """Prepares the service (creates tags, etc.)."""
         self.tags = ensure_tags_exist(self.logger)
     
     @property
     def incus_cluster_type(self):
         """
-        Retourne le ClusterType "Incus", le crée si nécessaire.
+        Returns the "Incus" ClusterType, creates it if necessary.
         
         Returns:
-            ClusterType: Le type de cluster Incus
+            ClusterType: The Incus cluster type
         """
         if self._cluster_type is None:
             self._cluster_type, created = ClusterType.objects.get_or_create(
                 slug=INCUS_CLUSTER_TYPE_SLUG,
                 defaults={
                     'name': 'Incus',
-                    'description': 'Cluster Incus (conteneurs et VMs)',
+                    'description': 'Incus Cluster (containers and VMs)',
                 }
             )
             if created:
-                self.log('info', f"  ClusterType 'Incus' créé")
+                self.log('info', f"  ClusterType 'Incus' created")
         return self._cluster_type
     
     def resolve_cluster(self, host, cluster_info=None):
         """
-        Détermine le cluster à utiliser pour les VMs d'un hôte.
+        Determines the cluster to use for a host's VMs.
         
-        Logique :
-        1. Si cluster_info indique qu'Incus est en mode cluster → créer/utiliser un Cluster NetBox
-        2. Sinon, si default_cluster est défini sur l'hôte → l'utiliser
-        3. Sinon → pas de cluster (None)
+        Logic:
+        1. If cluster_info indicates Incus is in cluster mode -> create/use a NetBox Cluster
+        2. Else, if default_cluster is defined on the host -> use it
+        3. Else -> no cluster (None)
         
         Args:
-            host: Instance IncusHost
-            cluster_info: Dict avec infos cluster depuis Incus API (optionnel)
+            host: IncusHost instance
+            cluster_info: Dict with cluster info from Incus API (optional)
                          {'enabled': bool, 'server_name': str, 'member_count': int}
         
         Returns:
-            Cluster ou None: Le cluster à utiliser
+            Cluster or None: The cluster to use
         """
-        # Cas 1 : Incus est en mode cluster
+        # Case 1: Incus is in cluster mode
         if cluster_info and cluster_info.get('enabled'):
             cluster_name = cluster_info.get('server_name') or f"incus-{host.name}"
             return self._get_or_create_cluster(cluster_name, host)
         
-        # Cas 2 : Utiliser le cluster par défaut si défini
+        # Case 2: Use default cluster if defined
         if host.default_cluster:
             return host.default_cluster
         
-        # Cas 3 : Pas de cluster
+        # Case 3: No cluster
         return None
     
     def _get_or_create_cluster(self, cluster_name, host):
         """
-        Récupère ou crée un Cluster NetBox pour un cluster Incus.
+        Retrieves or creates a NetBox Cluster for an Incus cluster.
         
         Args:
-            cluster_name: Nom du cluster
-            host: IncusHost source
+            cluster_name: Cluster name
+            host: Source IncusHost
         
         Returns:
-            Cluster: Le cluster NetBox
+            Cluster: The NetBox Cluster
         """
         cluster, created = Cluster.objects.get_or_create(
             name=cluster_name,
             type=self.incus_cluster_type,
             defaults={
-                'description': f"Cluster Incus synchronisé depuis {host.name}",
+                'description': f"Incus Cluster synchronized from {host.name}",
             }
         )
         
         if created:
-            self.log('info', f"  Cluster NetBox créé: {cluster_name}")
+            self.log('info', f"  NetBox Cluster created: {cluster_name}")
         
         return cluster
     
     def sync_instance(self, data, cluster, host):
         """
-        Synchronise une instance Incus vers NetBox.
+        Synchronizes an Incus instance to NetBox.
         
-        Utilise l'UUID Incus (volatile.uuid) comme identifiant unique pour :
-        - Retrouver une VM existante même si elle a été renommée
-        - Éviter les doublons
+        Uses the Incus UUID (volatile.uuid) as a unique identifier to:
+        - Find an existing VM even if it was renamed
+        - Avoid duplicates
         
         Args:
-            data: Données de l'instance Incus
-            cluster: Cluster NetBox cible (peut être None)
-            host: Instance IncusHost source
+            data: Incus instance data
+            cluster: Target NetBox Cluster (can be None)
+            host: Source IncusHost instance
         
         Returns:
             tuple: (vm, created: bool, updated: bool)
@@ -152,25 +144,25 @@ class InstanceSyncService:
         instance_type = data.get('type', 'container')
         config = data.get('config', {})
         
-        # UUID unique de l'instance Incus
+        # Unique Incus instance UUID
         incus_uuid = config.get('volatile.uuid', '')
         
-        # Champ location pour le clustering - indique sur quel nœud tourne l'instance
+        # Location field for clustering - indicates which node the instance is running on
         location = data.get('location', '')
         
-        # Mapping du statut
+        # Status mapping
         nb_status = 'active' if status_raw == 'Running' else 'offline'
         
-        # Extraction des ressources
+        # Resource extraction
         vcpus = self._extract_cpu(config)
         memory_mb = parse_memory(config.get('limits.memory', ''))
         disk_mb = self._extract_disk(data.get('devices', {}))
         
-        # Defaults pour update_or_create
+        # Defaults for update_or_create
         defaults = {
             'status': nb_status,
             'vcpus': vcpus,
-            'cluster': cluster,  # Peut être None - c'est voulu !
+            'cluster': cluster,  # Can be None - this is intended!
         }
         
         if memory_mb:
@@ -178,70 +170,70 @@ class InstanceSyncService:
         if disk_mb:
             defaults['disk'] = disk_mb
         
-        # Rechercher la VM existante par UUID d'abord, puis par nom
+        # Search for existing VM by UUID first, then by name
         existing_vm = self._find_existing_vm(vm_name, incus_uuid, host)
         created = existing_vm is None
         renamed = False
         old_name = None
         
         if existing_vm:
-            # Vérifier si l'instance a été renommée
+            # Check if instance was renamed
             if existing_vm.name != vm_name:
                 old_name = existing_vm.name
                 renamed = True
-                self.log('info', f"  Renommage détecté: {old_name} -> {vm_name}")
+                self.log('info', f"  Rename detected: {old_name} -> {vm_name}")
             
-            # Mettre à jour la VM existante
-            existing_vm.name = vm_name  # Mettre à jour le nom si renommé
+            # Update existing VM
+            existing_vm.name = vm_name  # Update name if renamed
             for key, value in defaults.items():
                 setattr(existing_vm, key, value)
             existing_vm.save()
             vm = existing_vm
         else:
-            # Créer une nouvelle VM
+            # Create new VM
             vm = VirtualMachine.objects.create(
                 name=vm_name,
                 **defaults
             )
         
-        # Mettre à jour les Custom Fields (incluant l'UUID)
+        # Update Custom Fields (including UUID)
         self._update_vm_custom_fields(vm, data, host, location, incus_uuid)
         
-        # Appliquer les tags
+        # Apply tags
         self._apply_tags(vm, instance_type)
         
         # Log
         if renamed:
-            action = f"Renommé ({old_name} ->)"
+            action = f"Renamed ({old_name} ->)"
         elif created:
-            action = "Créé"
+            action = "Created"
         else:
-            action = "Mis à jour"
+            action = "Updated"
         
         type_label = "container" if instance_type == 'container' else "VM"
-        cluster_info = f" dans {cluster.name}" if cluster else " (sans cluster)"
-        location_info = f" sur {location}" if location else ""
+        cluster_info = f" in {cluster.name}" if cluster else " (no cluster)"
+        location_info = f" on {location}" if location else ""
         self.log('info', f"  {action}: {vm_name} ({type_label}){cluster_info}{location_info}")
         
         return vm, created, not created
     
     def _find_existing_vm(self, vm_name, incus_uuid, host):
         """
-        Recherche une VM existante, d'abord par UUID puis par nom.
+        Searches for an existing VM, first by UUID then by name.
         
-        Stratégie de recherche (dans l'ordre) :
-        1. Par UUID Incus (le plus fiable, survit aux renommages)
-        2. Par nom + hôte Incus (fallback pour les anciennes VMs sans UUID)
+        Search strategy (in order):
+        1. By Incus UUID (most reliable, survives renames)
+        2. By name + Incus host (fallback for old VMs without UUID)
         
         Args:
-            vm_name: Nom actuel de la VM dans Incus
-            incus_uuid: UUID de l'instance Incus (volatile.uuid)
-            host: IncusHost source
+            vm_name: Current VM name in Incus
+            incus_uuid: Incus instance UUID (volatile.uuid)
+            host: Source IncusHost
         
         Returns:
-            VirtualMachine ou None
+            VirtualMachine or None
         """
-        # 1. Recherche par UUID (méthode privilégiée)
+        # 1. Search by UUID (preferred method)
         if incus_uuid:
             vm = VirtualMachine.objects.filter(
                 custom_field_data__incus_uuid=incus_uuid
@@ -249,8 +241,8 @@ class InstanceSyncService:
             if vm:
                 return vm
         
-        # 2. Fallback: recherche par nom + hôte Incus
-        # (pour les VMs créées avant l'ajout du tracking par UUID)
+        # 2. Fallback: search by name + Incus host
+        # (for VMs created before UUID tracking was added)
         vm = VirtualMachine.objects.filter(
             name=vm_name,
             custom_field_data__incus_host=host.name
@@ -260,21 +252,21 @@ class InstanceSyncService:
     
     def _update_vm_custom_fields(self, vm, data, host, location='', incus_uuid=''):
         """
-        Met à jour les Custom Fields de la VM.
+        Updates VM Custom Fields.
         
         Args:
-            vm: Instance VirtualMachine NetBox
-            data: Données de l'instance Incus
-            host: Instance IncusHost source
-            location: Nom du nœud de cluster (optionnel)
-            incus_uuid: UUID unique de l'instance Incus
+            vm: NetBox VirtualMachine instance
+            data: Incus instance data
+            host: Source IncusHost instance
+            location: Cluster node name (optional)
+            incus_uuid: Unique Incus instance UUID
         """
         config = data.get('config', {})
         instance_type = data.get('type', 'container')
         created_at = data.get('created_at', '')
         profiles = data.get('profiles', [])
         
-        # Image: essayer plusieurs clés possibles
+        # Image: try multiple possible keys
         image_info = (
             config.get('image.description') or 
             config.get('image.os', '') + ' ' + config.get('image.release', '') or
@@ -284,12 +276,12 @@ class InstanceSyncService:
         
         updated = False
         
-        # UUID Incus (identifiant unique pour le tracking)
+        # Incus UUID (unique identifier for tracking)
         if incus_uuid and vm.custom_field_data.get('incus_uuid') != incus_uuid:
             vm.custom_field_data['incus_uuid'] = incus_uuid
             updated = True
         
-        # Hôte Incus source
+        # Source Incus Host
         if vm.custom_field_data.get('incus_host') != host.name:
             vm.custom_field_data['incus_host'] = host.name
             updated = True
@@ -305,7 +297,7 @@ class InstanceSyncService:
                 vm.custom_field_data['incus_image'] = image_info
                 updated = True
         
-        # Created in Incus (convertir ISO en datetime)
+        # Created in Incus (convert ISO to datetime)
         if created_at:
             created_datetime = self._parse_incus_datetime(created_at)
             if created_datetime:
@@ -314,12 +306,12 @@ class InstanceSyncService:
                     vm.custom_field_data['incus_created'] = created_iso
                     updated = True
         
-        # Last Sync (toujours mettre à jour)
+        # Last Sync (always update)
         now_iso = timezone.now().isoformat()
         vm.custom_field_data['incus_last_sync'] = now_iso
         updated = True
         
-        # Profiles (liste -> string séparé par virgules)
+        # Profiles (list -> comma separated string)
         if profiles:
             profiles_str = ', '.join(profiles)
             if vm.custom_field_data.get('incus_profiles') != profiles_str:
@@ -329,13 +321,13 @@ class InstanceSyncService:
             del vm.custom_field_data['incus_profiles']
             updated = True
         
-        # Cluster Node Location (pour les instances en cluster Incus)
+        # Cluster Node Location (for Incus cluster instances)
         if location:
             if vm.custom_field_data.get('incus_location') != location:
                 vm.custom_field_data['incus_location'] = location
                 updated = True
         elif 'incus_location' in vm.custom_field_data:
-            # Retirer si plus de location (instance déplacée hors cluster)
+            # Remove if no location (instance moved out of cluster)
             del vm.custom_field_data['incus_location']
             updated = True
         
@@ -344,20 +336,20 @@ class InstanceSyncService:
     
     def _parse_incus_datetime(self, dt_string):
         """
-        Parse une date/heure Incus (format ISO avec nanosecondes).
+        Parses an Incus datetime (ISO format with nanoseconds).
         
         Args:
-            dt_string: String datetime au format Incus
+            dt_string: Datetime string in Incus format
         
         Returns:
-            datetime ou None
+            datetime or None
         """
         if not dt_string:
             return None
         
         try:
-            # Format Incus: 2026-01-27T13:58:42.690298037Z
-            # Python ne gère pas les nanosecondes, on tronque aux microsecondes
+            # Incus Format: 2026-01-27T13:58:42.690298037Z
+            # Python does not handle nanoseconds, truncate to microseconds
             if '.' in dt_string:
                 base, frac = dt_string.split('.')
                 frac_clean = frac.rstrip('Z')[:6]
@@ -365,22 +357,22 @@ class InstanceSyncService:
             
             return datetime.fromisoformat(dt_string.replace('Z', '+00:00'))
         except (ValueError, AttributeError) as e:
-            self.log('debug', f"    Impossible de parser la date: {dt_string} - {e}")
+            self.log('debug', f"    Unable to parse date: {dt_string} - {e}")
             return None
     
     def handle_deletions(self, cluster, host, incus_instance_uuids):
         """
-        Supprime les VMs qui n'existent plus dans Incus.
+        Deletes VMs that no longer exist in Incus.
         
-        Utilise les UUIDs pour identifier les VMs à supprimer.
+        Uses UUIDs to identify VMs to delete.
         
         Args:
-            cluster: Cluster NetBox (peut être None)
-            host: IncusHost source
-            incus_instance_uuids: Set des UUIDs d'instances actuelles dans Incus
+            cluster: NetBox Cluster (can be None)
+            host: Source IncusHost
+            incus_instance_uuids: Set of current instance UUIDs in Incus
         
         Returns:
-            int: Nombre de VMs supprimées
+            int: Number of VMs deleted
         """
         deleted_count = 0
         
@@ -389,7 +381,7 @@ class InstanceSyncService:
         except Tag.DoesNotExist:
             return 0
         
-        # Filtrer les VMs gérées par cet hôte Incus
+        # Filter VMs managed by this Incus host
         managed_vms = VirtualMachine.objects.filter(
             tags=managed_tag,
             custom_field_data__incus_host=host.name
@@ -398,31 +390,31 @@ class InstanceSyncService:
         for vm in managed_vms:
             vm_uuid = vm.custom_field_data.get('incus_uuid', '')
             
-            # Si la VM a un UUID et qu'il n'est plus dans Incus
+            # If VM has a UUID and it is not in Incus
             if vm_uuid and vm_uuid not in incus_instance_uuids:
                 vm_name = vm.name
-                self.log('warning', f"  Instance disparue d'Incus: {vm_name} (UUID: {vm_uuid[:8]}...)")
+                self.log('warning', f"  Instance disappeared from Incus: {vm_name} (UUID: {vm_uuid[:8]}...)")
                 
-                # Supprimer la VM de NetBox
+                # Delete VM from NetBox
                 vm.delete()
                 deleted_count += 1
-                self.log('info', f"  Supprimé de NetBox: {vm_name}")
+                self.log('info', f"  Deleted from NetBox: {vm_name}")
             
-            # Fallback pour les VMs sans UUID (anciennes)
+            # Fallback for VMs without UUID (old)
             elif not vm_uuid:
-                self.log('debug', f"  VM sans UUID ignorée pour la suppression: {vm.name}")
+                self.log('debug', f"  VM without UUID ignored for deletion: {vm.name}")
         
         return deleted_count
     
     def _extract_cpu(self, config):
-        """Extrait le nombre de vCPUs depuis la config."""
+        """Extracts the number of vCPUs from config."""
         try:
             return float(config.get('limits.cpu', 1))
         except (ValueError, TypeError):
             return 1
     
     def _extract_disk(self, devices):
-        """Extrait la taille du disque root depuis les devices."""
+        """Extracts the root disk size from devices."""
         for dev_name, dev_conf in devices.items():
             if dev_conf.get('type') == 'disk' and dev_conf.get('path') == '/':
                 raw_disk = dev_conf.get('size', '0')
@@ -430,7 +422,7 @@ class InstanceSyncService:
         return 0
     
     def _apply_tags(self, vm, instance_type):
-        """Applique les tags appropriés à la VM."""
+        """Applies appropriate tags to the VM."""
         managed_tag = self.tags.get('incus-managed') or Tag.objects.get(slug='incus-managed')
         
         if instance_type == 'container':
@@ -443,7 +435,7 @@ class InstanceSyncService:
         vm.tags.add(managed_tag)
         vm.tags.add(type_tag)
         
-        # Retirer l'autre tag de type si présent
+        # Remove the other type tag if present
         try:
             other_tag = Tag.objects.get(slug=other_tag_slug)
             vm.tags.remove(other_tag)

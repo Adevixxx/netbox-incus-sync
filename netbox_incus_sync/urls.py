@@ -10,10 +10,10 @@ urlpatterns = [
     path('hosts/add/', views.IncusHostEditView.as_view(), name='incushost_add'),
     path('hosts/<int:pk>/', include(get_model_urls('netbox_incus_sync', 'incushost'))),
     
-    # Synchronisation
+    # Synchronization
     path('sync/', views.IncusSyncView.as_view(), name='sync'),
     path('sync/events/', views.IncusSyncEventsView.as_view(), name='sync_events'),
     
-    # Test de connexion
+    # Connection test
     path('hosts/<int:pk>/test-connection/', views.IncusHostTestConnectionView.as_view(), name='incushost_test_connection'),
 ]

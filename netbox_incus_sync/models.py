@@ -7,104 +7,104 @@ import os
 
 
 class ConnectionTypeChoices(models.TextChoices):
-    UNIX_SOCKET = 'unix', 'Socket Unix'
-    HTTPS = 'https', 'HTTPS (certificat TLS)'
+    UNIX_SOCKET = 'unix', 'Unix Socket'
+    HTTPS = 'https', 'HTTPS (TLS certificate)'
 
 
 def validate_file_exists(path):
-    """Valide que le fichier existe et est lisible."""
+    """Validates that the file exists and is readable."""
     if path and not os.path.isfile(path):
-        raise ValidationError(f"Le fichier n'existe pas : {path}")
+        raise ValidationError(f"File does not exist: {path}")
     if path and not os.access(path, os.R_OK):
-        raise ValidationError(f"Le fichier n'est pas lisible : {path}")
+        raise ValidationError(f"File is not readable: {path}")
 
 
 def validate_file_permissions(path):
-    """Valide que le fichier a des permissions sécurisées (600 ou 400)."""
+    """Validates that the file has secure permissions (600 or 400)."""
     if not path or not os.path.isfile(path):
         return
     mode = os.stat(path).st_mode & 0o777
     if mode not in (0o600, 0o400, 0o640, 0o440):
         raise ValidationError(
-            f"Permissions du fichier trop permissives ({oct(mode)}). "
-            f"Utilisez chmod 600 {path}"
+            f"File permissions too permissive ({oct(mode)}). "
+            f"Use chmod 600 {path}"
         )
 
 
 class IncusHost(NetBoxModel):
     """
-    Modèle représentant un hôte Incus à synchroniser avec NetBox.
+    Model representing an Incus host to synchronize with NetBox.
     
-    Sécurité des certificats :
-    - Les certificats sont stockés comme FICHIERS sur le serveur, pas dans la DB
-    - Seuls les chemins sont stockés dans la base de données
-    - Les fichiers doivent avoir des permissions restrictives (600)
+    Certificate Security:
+    - Certificates are stored as FILES on the server, not in DB
+    - Only paths are stored in database
+    - Files must have restrictive permissions (600)
     """
     name = models.CharField(
         max_length=100,
         unique=True,
-        verbose_name='Nom'
+        verbose_name='Name'
     )
 
     connection_type = models.CharField(
         max_length=10,
         choices=ConnectionTypeChoices.choices,
         default=ConnectionTypeChoices.UNIX_SOCKET,
-        verbose_name='Type de connexion'
+        verbose_name='Connection Type'
     )
 
-    # ========== Connexion Unix Socket ==========
+    # ========== Unix Socket Connection ==========
     socket_path = models.CharField(
         max_length=255,
         default='http+unix://%2Fvar%2Flib%2Fincus%2Funix.socket',
         blank=True,
-        verbose_name='Chemin du socket',
+        verbose_name='Socket Path',
         help_text="Format: http+unix://%2Fvar%2Flib%2Fincus%2Funix.socket"
     )
 
-    # ========== Connexion HTTPS ==========
+    # ========== HTTPS Connection ==========
     https_url = models.URLField(
         max_length=255,
         blank=True,
-        verbose_name='URL HTTPS',
+        verbose_name='HTTPS URL',
         help_text="Ex: https://incus.example.com:8443"
     )
 
-    # Chemins vers les fichiers de certificats (PAS le contenu!)
+    # Paths to certificate files (NOT the content!)
     client_cert_path = models.CharField(
         max_length=500,
         blank=True,
-        verbose_name='Chemin du certificat client',
-        help_text="Chemin absolu vers le fichier .crt (ex: /etc/netbox/incus/client.crt)",
+        verbose_name='Client Certificate Path',
+        help_text="Absolute path to .crt file (e.g. /etc/netbox/incus/client.crt)",
         validators=[validate_file_exists]
     )
 
     client_key_path = models.CharField(
         max_length=500,
         blank=True,
-        verbose_name='Chemin de la clé privée',
-        help_text="Chemin absolu vers le fichier .key (ex: /etc/netbox/incus/client.key)",
+        verbose_name='Private Key Path',
+        help_text="Absolute path to .key file (e.g. /etc/netbox/incus/client.key)",
         validators=[validate_file_exists]
     )
 
     ca_cert_path = models.CharField(
         max_length=500,
         blank=True,
-        verbose_name='Chemin du certificat CA (optionnel)',
-        help_text="Pour valider le certificat du serveur Incus",
+        verbose_name='CA Certificate Path (optional)',
+        help_text="To validate Incus server certificate",
         validators=[validate_file_exists]
     )
 
     verify_ssl = models.BooleanField(
         default=True,
-        verbose_name='Vérifier le certificat SSL',
-        help_text="Décocher uniquement pour les environnements de test"
+        verbose_name='Verify SSL Certificate',
+        help_text="Uncheck only for test environments"
     )
 
-    # ========== Configuration générale ==========
+    # ========== General Configuration ==========
     enabled = models.BooleanField(
         default=True,
-        verbose_name='Activé'
+        verbose_name='Enabled'
     )
 
     default_cluster = models.ForeignKey(
@@ -113,13 +113,13 @@ class IncusHost(NetBoxModel):
         null=True,
         blank=True,
         related_name='incus_hosts',
-        verbose_name='Cluster par défaut'
+        verbose_name='Default Cluster'
     )
 
     class Meta:
         ordering = ('name',)
-        verbose_name = 'Hôte Incus'
-        verbose_name_plural = 'Hôtes Incus'
+        verbose_name = 'Incus Host'
+        verbose_name_plural = 'Incus Hosts'
 
     def __str__(self):
         return self.name
@@ -129,36 +129,36 @@ class IncusHost(NetBoxModel):
 
     @property
     def connection_url(self):
-        """Retourne l'URL de connexion selon le type."""
+        """Returns connection URL based on type."""
         if self.connection_type == ConnectionTypeChoices.HTTPS:
             return self.https_url
         return self.socket_path
 
     def clean(self):
-        """Validation du modèle."""
+        """Model validation."""
         super().clean()
         
         if self.connection_type == ConnectionTypeChoices.UNIX_SOCKET:
             if not self.socket_path:
                 raise ValidationError({
-                    'socket_path': "Le chemin du socket est requis."
+                    'socket_path': "Socket path is required."
                 })
                 
         elif self.connection_type == ConnectionTypeChoices.HTTPS:
             if not self.https_url:
                 raise ValidationError({
-                    'https_url': "L'URL HTTPS est requise."
+                    'https_url': "HTTPS URL is required."
                 })
             if not self.client_cert_path:
                 raise ValidationError({
-                    'client_cert_path': "Le chemin du certificat client est requis."
+                    'client_cert_path': "Client certificate path is required."
                 })
             if not self.client_key_path:
                 raise ValidationError({
-                    'client_key_path': "Le chemin de la clé privée est requis."
+                    'client_key_path': "Private key path is required."
                 })
             
-            # Vérifier les permissions des fichiers sensibles
+            # Check permissions of sensitive files
             for path_field in ['client_key_path']:
                 path = getattr(self, path_field)
                 if path:
@@ -169,26 +169,26 @@ class IncusHost(NetBoxModel):
 
     def check_certificates(self):
         """
-        Vérifie que les certificats sont accessibles et valides.
-        Retourne (success, message).
+        Checks that certificates are accessible and valid.
+        Returns (success, message).
         """
         if self.connection_type != ConnectionTypeChoices.HTTPS:
-            return True, "Connexion Unix socket (pas de certificats)"
+            return True, "Unix Socket Connection (no certificates)"
         
         errors = []
         
         for field, label in [
-            ('client_cert_path', 'Certificat client'),
-            ('client_key_path', 'Clé privée'),
+            ('client_cert_path', 'Client Certificate'),
+            ('client_key_path', 'Private Key'),
         ]:
             path = getattr(self, field)
             if not path:
-                errors.append(f"{label}: chemin non défini")
+                errors.append(f"{label}: path not defined")
             elif not os.path.isfile(path):
-                errors.append(f"{label}: fichier introuvable ({path})")
+                errors.append(f"{label}: file not found ({path})")
             elif not os.access(path, os.R_OK):
-                errors.append(f"{label}: fichier non lisible ({path})")
+                errors.append(f"{label}: file not readable ({path})")
         
         if errors:
             return False, "; ".join(errors)
-        return True, "Certificats OK"
+        return True, "Certificates OK"

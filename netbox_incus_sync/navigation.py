@@ -1,10 +1,10 @@
 from netbox.plugins import PluginMenuButton, PluginMenuItem
 
-# Boutons d'action dans le menu
+# Menu action buttons
 incushost_buttons = (
     PluginMenuButton(
         link='plugins:netbox_incus_sync:incushost_add',
-        title='Ajouter',
+        title='Add',
         icon_class='mdi mdi-plus-thick',
         color='green'
     ),
@@ -16,17 +16,17 @@ incushost_buttons = (
     ),
     PluginMenuButton(
         link='plugins:netbox_incus_sync:sync_events',
-        title='Sync événements',
+        title='Sync events',
         icon_class='mdi mdi-history',
         color='cyan'
     ),
 )
 
-# Éléments du menu
+# Menu items
 menu_items = (
     PluginMenuItem(
         link='plugins:netbox_incus_sync:incushost_list',
-        link_text='Hôtes Incus',
+        link_text='Incus Hosts',
         buttons=incushost_buttons
     ),
 )

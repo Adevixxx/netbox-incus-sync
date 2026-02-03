@@ -13,7 +13,7 @@ from .incus_client import IncusClient
 
 
 # ============================================
-# Vues CRUD pour IncusHost
+# CRUD Views for IncusHost
 # ============================================
 
 class IncusHostListView(generic.ObjectListView):
@@ -26,10 +26,10 @@ class IncusHostView(generic.ObjectView):
     queryset = IncusHost.objects.all()
     
     def get_extra_context(self, request, instance):
-        """Ajoute des informations supplémentaires au contexte."""
+        """Adds additional information to the context."""
         context = {}
         
-        # Essayer de récupérer les infos de connexion
+        # Try to retrieve connection info
         try:
             client = IncusClient(host=instance)
             success, message, extra_info = client.test_connection()
@@ -73,33 +73,33 @@ class IncusHostBulkDeleteView(generic.BulkDeleteView):
 
 
 # ============================================
-# Vues de synchronisation
+# Synchronization Views
 # ============================================
 
 class IncusSyncView(View):
-    """Lance la synchronisation complète Incus (instances, réseau, disques, événements, cluster)."""
+    """Starts full Incus synchronization (instances, network, disks, events, cluster)."""
     
     def get(self, request):
         job = SyncIncusJob.enqueue()
-        messages.success(request, f"Synchronisation complète Incus lancée (Job #{job.pk})")
+        messages.success(request, f"Full Incus synchronization started (Job #{job.pk})")
         return redirect('plugins:netbox_incus_sync:incushost_list')
 
 
 class IncusSyncEventsView(View):
-    """Lance la synchronisation des événements Incus uniquement."""
+    """Starts Incus events synchronization only."""
     
     def get(self, request):
         job = SyncEventsJob.enqueue()
-        messages.success(request, f"Synchronisation des événements Incus lancée (Job #{job.pk})")
+        messages.success(request, f"Incus events synchronization started (Job #{job.pk})")
         return redirect('plugins:netbox_incus_sync:incushost_list')
 
 
 # ============================================
-# Vues utilitaires
+# Utility Views
 # ============================================
 
 class IncusHostTestConnectionView(View):
-    """Teste la connexion à un hôte Incus et retourne le résultat en JSON."""
+    """Tests connection to an Incus host and returns the result in JSON."""
     
     def get(self, request, pk):
         host = get_object_or_404(IncusHost, pk=pk)
@@ -108,23 +108,23 @@ class IncusHostTestConnectionView(View):
             client = IncusClient(host=host)
             success, message, extra_info = client.test_connection()
             
-            # Récupérer des infos supplémentaires si connecté
+            # Retrieve additional info if connected
             if success:
-                # Nombre d'instances
+                # Instance count
                 try:
                     instances = client.get_instances(recursion=0)
                     extra_info['instances_count'] = len(instances)
                 except:
                     extra_info['instances_count'] = 0
                 
-                # Pools de stockage
+                # Storage pools
                 try:
                     pools = client.get_storage_pools()
                     extra_info['storage_pools'] = [p.get('name', '') for p in pools]
                 except:
                     extra_info['storage_pools'] = []
                 
-                # Réseaux
+                # Networks
                 try:
                     networks = client.get_networks()
                     extra_info['networks'] = [n.get('name', '') for n in networks if n.get('managed', False)]

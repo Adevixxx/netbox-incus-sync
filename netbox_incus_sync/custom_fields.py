@@ -1,8 +1,8 @@
 """
-Gestion des Custom Fields pour le plugin Incus Sync.
+Custom Fields management for the Incus Sync plugin.
 
-Ce module crée et gère les Custom Fields nécessaires au plugin.
-Ces champs stockent des métadonnées Incus qui n'ont pas d'équivalent natif dans NetBox.
+This module creates and manages necessary Custom Fields for the plugin.
+These fields store Incus metadata that have no native equivalent in NetBox.
 """
 
 from django.contrib.contenttypes.models import ContentType
@@ -10,15 +10,15 @@ from extras.models import CustomField
 from extras.choices import CustomFieldTypeChoices, CustomFieldUIVisibleChoices, CustomFieldUIEditableChoices
 
 
-# Définition des Custom Fields du plugin
-# On ne crée que les champs qui n'ont PAS d'équivalent natif dans NetBox
+# Plugin Custom Fields definition
+# Only Create fields that have NO native equivalent in NetBox
 CUSTOM_FIELDS = [
-    # ========== Custom Fields pour VMInterface ==========
+    # ========== Custom Fields for VMInterface ==========
     {
         'name': 'incus_bridge',
         'label': 'Incus Bridge',
         'type': CustomFieldTypeChoices.TYPE_TEXT,
-        'description': 'Bridge ou réseau Incus auquel cette interface est connectée',
+        'description': 'Incus Bridge or network this interface is connected to',
         'object_types': ['virtualization.vminterface'],
         'ui_visible': CustomFieldUIVisibleChoices.ALWAYS,
         'ui_editable': CustomFieldUIEditableChoices.YES,
@@ -29,7 +29,7 @@ CUSTOM_FIELDS = [
         'name': 'incus_host_interface',
         'label': 'Host Interface',
         'type': CustomFieldTypeChoices.TYPE_TEXT,
-        'description': 'Interface veth côté hôte Incus',
+        'description': 'Host-side veth interface',
         'object_types': ['virtualization.vminterface'],
         'ui_visible': CustomFieldUIVisibleChoices.ALWAYS,
         'ui_editable': CustomFieldUIEditableChoices.HIDDEN,
@@ -40,19 +40,19 @@ CUSTOM_FIELDS = [
         'name': 'incus_nic_type',
         'label': 'NIC Type',
         'type': CustomFieldTypeChoices.TYPE_TEXT,
-        'description': 'Type de NIC Incus (bridged, macvlan, etc.)',
+        'description': 'Incus NIC type (bridged, macvlan, etc.)',
         'object_types': ['virtualization.vminterface'],
         'ui_visible': CustomFieldUIVisibleChoices.IF_SET,
         'ui_editable': CustomFieldUIEditableChoices.HIDDEN,
         'is_cloneable': True,
         'group_name': 'Incus',
     },
-    # ========== Custom Fields pour VirtualDisk ==========
+    # ========== Custom Fields for VirtualDisk ==========
     {
         'name': 'incus_mount_path',
         'label': 'Mount Path',
         'type': CustomFieldTypeChoices.TYPE_TEXT,
-        'description': 'Point de montage du disque dans le conteneur/VM',
+        'description': 'Disk mount point in container/VM',
         'object_types': ['virtualization.virtualdisk'],
         'ui_visible': CustomFieldUIVisibleChoices.ALWAYS,
         'ui_editable': CustomFieldUIEditableChoices.HIDDEN,
@@ -63,7 +63,7 @@ CUSTOM_FIELDS = [
         'name': 'incus_storage_pool',
         'label': 'Storage Pool',
         'type': CustomFieldTypeChoices.TYPE_TEXT,
-        'description': 'Pool de stockage Incus contenant ce disque',
+        'description': 'Incus storage pool containing this disk',
         'object_types': ['virtualization.virtualdisk'],
         'ui_visible': CustomFieldUIVisibleChoices.ALWAYS,
         'ui_editable': CustomFieldUIEditableChoices.HIDDEN,
@@ -74,7 +74,7 @@ CUSTOM_FIELDS = [
         'name': 'incus_volume_source',
         'label': 'Volume Source',
         'type': CustomFieldTypeChoices.TYPE_TEXT,
-        'description': 'Nom du volume source Incus (pour les volumes additionnels)',
+        'description': 'Incus source volume name (for additional volumes)',
         'object_types': ['virtualization.virtualdisk'],
         'ui_visible': CustomFieldUIVisibleChoices.IF_SET,
         'ui_editable': CustomFieldUIEditableChoices.HIDDEN,
@@ -85,20 +85,20 @@ CUSTOM_FIELDS = [
         'name': 'incus_disk_type',
         'label': 'Disk Type',
         'type': CustomFieldTypeChoices.TYPE_TEXT,
-        'description': 'Type de disque (root, data, etc.)',
+        'description': 'Disk type (root, data, etc.)',
         'object_types': ['virtualization.virtualdisk'],
         'ui_visible': CustomFieldUIVisibleChoices.IF_SET,
         'ui_editable': CustomFieldUIEditableChoices.HIDDEN,
         'is_cloneable': False,
         'group_name': 'Incus',
     },
-    # ========== Custom Fields pour VirtualMachine ==========
-    # Note: Le cluster est géré nativement par NetBox (VirtualMachine.cluster)
+    # ========== Custom Fields for VirtualMachine ==========
+    # Note: Cluster is natively managed by NetBox (VirtualMachine.cluster)
     {
         'name': 'incus_uuid',
         'label': 'Incus UUID',
         'type': CustomFieldTypeChoices.TYPE_TEXT,
-        'description': 'UUID unique de l\'instance Incus (volatile.uuid) - utilisé pour le tracking',
+        'description': 'Unique Incus Instance UUID (volatile.uuid) - used for tracking',
         'object_types': ['virtualization.virtualmachine'],
         'ui_visible': CustomFieldUIVisibleChoices.IF_SET,
         'ui_editable': CustomFieldUIEditableChoices.HIDDEN,
@@ -109,7 +109,7 @@ CUSTOM_FIELDS = [
         'name': 'incus_host',
         'label': 'Incus Host',
         'type': CustomFieldTypeChoices.TYPE_TEXT,
-        'description': 'Nom de l\'hôte Incus source',
+        'description': 'Source Incus Host name',
         'object_types': ['virtualization.virtualmachine'],
         'ui_visible': CustomFieldUIVisibleChoices.ALWAYS,
         'ui_editable': CustomFieldUIEditableChoices.HIDDEN,
@@ -120,7 +120,7 @@ CUSTOM_FIELDS = [
         'name': 'incus_type',
         'label': 'Instance Type',
         'type': CustomFieldTypeChoices.TYPE_SELECT,
-        'description': 'Type d\'instance Incus (container ou virtual-machine)',
+        'description': 'Incus Instance Type (container or virtual-machine)',
         'object_types': ['virtualization.virtualmachine'],
         'ui_visible': CustomFieldUIVisibleChoices.ALWAYS,
         'ui_editable': CustomFieldUIEditableChoices.HIDDEN,
@@ -132,7 +132,7 @@ CUSTOM_FIELDS = [
         'name': 'incus_image',
         'label': 'Image',
         'type': CustomFieldTypeChoices.TYPE_TEXT,
-        'description': 'Image ou template source de l\'instance',
+        'description': 'Source image or template of the instance',
         'object_types': ['virtualization.virtualmachine'],
         'ui_visible': CustomFieldUIVisibleChoices.ALWAYS,
         'ui_editable': CustomFieldUIEditableChoices.HIDDEN,
@@ -143,7 +143,7 @@ CUSTOM_FIELDS = [
         'name': 'incus_created',
         'label': 'Created in Incus',
         'type': CustomFieldTypeChoices.TYPE_DATETIME,
-        'description': 'Date de création de l\'instance dans Incus',
+        'description': 'Instance creation date in Incus',
         'object_types': ['virtualization.virtualmachine'],
         'ui_visible': CustomFieldUIVisibleChoices.ALWAYS,
         'ui_editable': CustomFieldUIEditableChoices.HIDDEN,
@@ -154,7 +154,7 @@ CUSTOM_FIELDS = [
         'name': 'incus_last_sync',
         'label': 'Last Sync',
         'type': CustomFieldTypeChoices.TYPE_DATETIME,
-        'description': 'Date de la dernière synchronisation',
+        'description': 'Last synchronization date',
         'object_types': ['virtualization.virtualmachine'],
         'ui_visible': CustomFieldUIVisibleChoices.ALWAYS,
         'ui_editable': CustomFieldUIEditableChoices.HIDDEN,
@@ -165,7 +165,7 @@ CUSTOM_FIELDS = [
         'name': 'incus_profiles',
         'label': 'Profiles',
         'type': CustomFieldTypeChoices.TYPE_TEXT,
-        'description': 'Profils Incus appliqués à l\'instance',
+        'description': 'Incus Profiles applied to the instance',
         'object_types': ['virtualization.virtualmachine'],
         'ui_visible': CustomFieldUIVisibleChoices.IF_SET,
         'ui_editable': CustomFieldUIEditableChoices.HIDDEN,
@@ -176,7 +176,7 @@ CUSTOM_FIELDS = [
         'name': 'incus_location',
         'label': 'Cluster Node',
         'type': CustomFieldTypeChoices.TYPE_TEXT,
-        'description': 'Nœud du cluster Incus sur lequel tourne l\'instance (si cluster)',
+        'description': 'Incus Cluster Node running the instance (if cluster)',
         'object_types': ['virtualization.virtualmachine'],
         'ui_visible': CustomFieldUIVisibleChoices.IF_SET,
         'ui_editable': CustomFieldUIEditableChoices.HIDDEN,
@@ -188,20 +188,20 @@ CUSTOM_FIELDS = [
 
 def ensure_custom_fields_exist(logger=None):
     """
-    Crée les Custom Fields nécessaires s'ils n'existent pas.
+    Creates necessary Custom Fields if they don't exist.
     
     Args:
-        logger: Logger optionnel pour les messages
+        logger: Optional logger for messages
     
     Returns:
-        dict: Les Custom Fields créés/récupérés par nom
+        dict: Created/Retrieved Custom Fields by name
     """
     custom_fields = {}
     
     for cf_def in CUSTOM_FIELDS:
         cf_name = cf_def['name']
         
-        # Vérifier si le Custom Field existe déjà
+        # Check if Custom Field already exists
         try:
             cf = CustomField.objects.get(name=cf_name)
             custom_fields[cf_name] = cf
@@ -209,7 +209,7 @@ def ensure_custom_fields_exist(logger=None):
         except CustomField.DoesNotExist:
             pass
         
-        # Récupérer les ContentTypes pour object_types
+        # Retrieve ContentTypes for object_types
         object_types = []
         for ct_string in cf_def['object_types']:
             app_label, model = ct_string.split('.')
@@ -218,13 +218,13 @@ def ensure_custom_fields_exist(logger=None):
                 object_types.append(ct)
             except ContentType.DoesNotExist:
                 if logger:
-                    logger.warning(f"ContentType {ct_string} non trouvé")
+                    logger.warning(f"ContentType {ct_string} not found")
                 continue
         
         if not object_types:
             continue
         
-        # Préparer les paramètres de création
+        # Prepare creation parameters
         create_params = {
             'name': cf_name,
             'label': cf_def.get('label', cf_name),
@@ -236,32 +236,32 @@ def ensure_custom_fields_exist(logger=None):
             'group_name': cf_def.get('group_name', ''),
         }
         
-        # Créer le Custom Field
+        # Create Custom Field
         cf = CustomField.objects.create(**create_params)
         
-        # Associer les object_types (ManyToMany)
+        # Associate object_types (ManyToMany)
         cf.object_types.set(object_types)
         
-        # Pour les champs SELECT, créer les choix via CustomFieldChoiceSet
+        # For SELECT fields, create choices via CustomFieldChoiceSet
         if cf_def['type'] == CustomFieldTypeChoices.TYPE_SELECT and 'choice_set_choices' in cf_def:
             _create_choice_set(cf, cf_def['choice_set_choices'], logger)
         
         custom_fields[cf_name] = cf
         
         if logger:
-            logger.info(f"  Custom Field créé: {cf_def.get('label', cf_name)}")
+            logger.info(f"  Custom Field created: {cf_def.get('label', cf_name)}")
     
     return custom_fields
 
 
 def _create_choice_set(custom_field, choices, logger=None):
     """
-    Crée un CustomFieldChoiceSet pour un champ SELECT.
+    Creates a CustomFieldChoiceSet for a SELECT field.
     
     Args:
-        custom_field: Instance CustomField
-        choices: Liste des choix
-        logger: Logger optionnel
+        custom_field: CustomField instance
+        choices: List of choices
+        logger: Optional logger
     """
     from extras.models import CustomFieldChoiceSet
     
@@ -270,7 +270,7 @@ def _create_choice_set(custom_field, choices, logger=None):
     try:
         choice_set = CustomFieldChoiceSet.objects.get(name=choice_set_name)
     except CustomFieldChoiceSet.DoesNotExist:
-        # Formater les choix comme attendu par NetBox: liste de tuples (value, label)
+        # Format choices as expected by NetBox: list of tuples (value, label)
         extra_choices = [[choice, choice] for choice in choices]
         
         choice_set = CustomFieldChoiceSet.objects.create(
@@ -278,22 +278,22 @@ def _create_choice_set(custom_field, choices, logger=None):
             extra_choices=extra_choices,
         )
         if logger:
-            logger.info(f"    ChoiceSet créé: {choice_set_name}")
+            logger.info(f"    ChoiceSet created: {choice_set_name}")
     
-    # Associer le choice_set au custom field
+    # Associate choice_set to custom field
     custom_field.choice_set = choice_set
     custom_field.save()
 
 
 def get_custom_field(name):
     """
-    Récupère un Custom Field par son nom.
+    Retrieves a Custom Field by its name.
     
     Args:
-        name: Nom du Custom Field
+        name: Custom Field Name
     
     Returns:
-        CustomField ou None
+        CustomField or None
     """
     try:
         return CustomField.objects.get(name=name)

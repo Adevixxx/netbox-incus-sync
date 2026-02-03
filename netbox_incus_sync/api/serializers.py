@@ -33,5 +33,5 @@ class IncusHostSerializer(NetBoxModelSerializer):
         )
         brief_fields = ('id', 'url', 'display', 'name', 'connection_type')
         
-        # Ne pas exposer les chemins des clés dans les réponses brief
-        # pour éviter de divulguer des informations sensibles
+        # Do not expose key paths in brief responses
+        # to avoid disclosing sensitive information
