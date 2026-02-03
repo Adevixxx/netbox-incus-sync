@@ -111,7 +111,7 @@ class SyncIncusJob(JobRunner):
             # Retrieve Incus cluster info
             cluster_info = self._get_cluster_info(client)
             
-            # Retrieve instances (recursion=2 to get state)
+            # Retrieve instances with recursion=2 to get expanded_config and state
             instances = client.get_instances(recursion=2)
             self.logger.info(f"  > {len(instances)} instances found.")
             

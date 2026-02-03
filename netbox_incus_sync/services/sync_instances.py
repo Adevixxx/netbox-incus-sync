@@ -72,15 +72,26 @@ class InstanceSyncService:
         vm_name = data.get('name')
         status_raw = data.get('status')
         instance_type = data.get('type', 'container')
-        config = data.get('config', {})
-        incus_uuid = config.get('volatile.uuid', '')
         location = data.get('location', '')
+        
+        # Use expanded_config for limits (includes profile-inherited values)
+        # Fall back to config if expanded_config is not available
+        expanded_config = data.get('expanded_config', {})
+        config = data.get('config', {})
+        
+        # UUID is always in volatile config (instance-specific)
+        incus_uuid = config.get('volatile.uuid', '')
         
         nb_status = 'active' if status_raw == 'Running' else 'offline'
         
-        vcpus = self._extract_cpu(config)
-        memory_mb = parse_memory(config.get('limits.memory', ''))
-        disk_mb = self._extract_disk(data.get('devices', {}))
+        # Extract resources from expanded_config (profile + instance overrides)
+        vcpus = self._extract_cpu(expanded_config, config)
+        memory_mb = self._extract_memory(expanded_config, config)
+        
+        # Disk size from expanded_devices
+        expanded_devices = data.get('expanded_devices', {})
+        devices = data.get('devices', {})
+        disk_mb = self._extract_disk(expanded_devices if expanded_devices else devices)
         
         defaults = {
             'status': nb_status,
@@ -128,7 +139,11 @@ class InstanceSyncService:
         type_label = "container" if instance_type == 'container' else "VM"
         cluster_info = f" in {cluster.name}" if cluster else " (no cluster)"
         location_info = f" on {location}" if location else ""
-        self.log('info', f"  {action}: {vm_name} ({type_label}){cluster_info}{location_info}")
+        
+        # Log resource info for debugging
+        mem_str = f"{memory_mb}MB" if memory_mb else "N/A"
+        cpu_str = f"{vcpus}" if vcpus else "N/A"
+        self.log('info', f"  {action}: {vm_name} ({type_label}, vCPU={cpu_str}, RAM={mem_str}){cluster_info}{location_info}")
         
         return vm, created, not created
     
@@ -143,14 +158,20 @@ class InstanceSyncService:
     
     def _update_vm_custom_fields(self, vm, data, host, location='', incus_uuid=''):
         """Updates VM Custom Fields."""
+        # Use expanded_config for image info (may come from profile)
+        expanded_config = data.get('expanded_config', {})
         config = data.get('config', {})
+        
         instance_type = data.get('type', 'container')
         created_at = data.get('created_at', '')
         profiles = data.get('profiles', [])
         
+        # Image info: check both expanded_config and config
         image_info = (
-            config.get('image.description') or 
-            config.get('image.os', '') + ' ' + config.get('image.release', '') or
+            expanded_config.get('image.description') or 
+            config.get('image.description') or
+            (expanded_config.get('image.os', '') + ' ' + expanded_config.get('image.release', '')).strip() or
+            (config.get('image.os', '') + ' ' + config.get('image.release', '')).strip() or
             config.get('volatile.base_image', '') or
             'Unknown'
         ).strip()
@@ -248,13 +269,49 @@ class InstanceSyncService:
         
         return deleted_count
     
-    def _extract_cpu(self, config):
+    def _extract_cpu(self, expanded_config, config):
+        """
+        Extracts CPU count from expanded_config (preferred) or config.
+        
+        Incus CPU limits can be:
+        - An integer: number of CPUs
+        - A range: "0-3" means CPUs 0,1,2,3 (4 CPUs)
+        - A comma list: "0,2" means 2 CPUs
+        - A decimal for CPU time limit: "2.5" means 2.5 CPUs worth of time
+        """
+        cpu_value = expanded_config.get('limits.cpu') or config.get('limits.cpu')
+        
+        if not cpu_value:
+            return None
+        
+        cpu_str = str(cpu_value).strip()
+        
         try:
-            return float(config.get('limits.cpu', 1))
+            # Range format: "0-3"
+            if '-' in cpu_str and not cpu_str.startswith('-'):
+                parts = cpu_str.split('-')
+                if len(parts) == 2:
+                    start, end = int(parts[0]), int(parts[1])
+                    return end - start + 1
+            
+            # Comma-separated list: "0,2,4"
+            if ',' in cpu_str:
+                return len(cpu_str.split(','))
+            
+            # Direct number (int or float)
+            return float(cpu_str)
+            
         except (ValueError, TypeError):
-            return 1
+            self.log('debug', f"    Unable to parse CPU value: {cpu_value}")
+            return None
+    
+    def _extract_memory(self, expanded_config, config):
+        """Extracts memory from expanded_config (preferred) or config."""
+        memory_value = expanded_config.get('limits.memory') or config.get('limits.memory')
+        return parse_memory(memory_value)
     
     def _extract_disk(self, devices):
+        """Extracts root disk size from devices."""
         for dev_name, dev_conf in devices.items():
             if dev_conf.get('type') == 'disk' and dev_conf.get('path') == '/':
                 raw_disk = dev_conf.get('size', '0')

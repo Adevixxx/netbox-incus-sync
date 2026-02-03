@@ -143,6 +143,7 @@ class IncusClient:
 
         Args:
             recursion: Detail level (0=names, 1=config, 2=full state)
+                       Use recursion=2 to get expanded_config and state
 
         Returns:
             List of instances

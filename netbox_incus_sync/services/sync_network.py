@@ -35,9 +35,8 @@ class NetworkSyncService:
         if not network_state:
             return 0, 0
         
-        devices = instance_data.get('expanded_devices', {})
-        if not devices:
-            devices = instance_data.get('devices', {})
+        # Prefer expanded_devices (includes profile-inherited devices)
+        devices = instance_data.get('expanded_devices') or instance_data.get('devices', {})
         
         primary_ip4_candidate = None
         primary_ip6_candidate = None

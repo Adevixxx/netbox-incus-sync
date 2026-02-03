@@ -21,9 +21,8 @@ class DiskSyncService:
         """Synchronizes Incus instance disks to NetBox."""
         disks_synced = 0
         
-        devices = instance_data.get('expanded_devices', {})
-        if not devices:
-            devices = instance_data.get('devices', {})
+        # Prefer expanded_devices (includes profile-inherited devices)
+        devices = instance_data.get('expanded_devices') or instance_data.get('devices', {})
         
         disk_devices = {
             name: config 
@@ -32,7 +31,7 @@ class DiskSyncService:
         }
         
         if not disk_devices:
-            self.log('info', f"    No disk found for {vm.name}")
+            self.log('debug', f"    No disk found for {vm.name}")
             return 0
         
         current_disk_names = set()
@@ -46,8 +45,6 @@ class DiskSyncService:
                 disks_synced += 1
                 if created:
                     self.log('info', f"    Disk created: {disk_name} ({disk.size} MB)")
-                else:
-                    self.log('info', f"    Disk updated: {disk_name} ({disk.size} MB)")
         
         self._cleanup_old_disks(vm, current_disk_names)
         
