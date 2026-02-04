@@ -13,6 +13,16 @@
 <button type="button" class="btn btn-sm btn-outline-primary" id="test-connection-btn" title="Test Connection">
     <i class="mdi mdi-connection"></i> Test Connection
 </button>
+{% if object.connection_type == 'https' and configured_urls|length > 1 %}
+<button type="button" class="btn btn-sm btn-outline-info" id="test-all-urls-btn" title="Test All URLs">
+    <i class="mdi mdi-server-network"></i> Test All URLs
+</button>
+{% endif %}
+{% if object.last_working_url %}
+<button type="button" class="btn btn-sm btn-outline-warning" id="clear-cache-btn" title="Clear URL Cache">
+    <i class="mdi mdi-cached"></i> Clear Cache
+</button>
+{% endif %}
 {% endblock extra_controls %}
 
 {% block content %}
@@ -38,9 +48,9 @@
                         <th scope="row">Enabled</th>
                         <td>
                             {% if object.enabled %}
-                            <span class="badge bg-success">Yes</span>
+                            <span class="badge bg-success text-dark">Yes</span>
                             {% else %}
-                            <span class="badge bg-danger">No</span>
+                            <span class="badge bg-danger text-dark">No</span>
                             {% endif %}
                         </td>
                     </tr>
@@ -57,9 +67,9 @@
                         <th scope="row">Status</th>
                         <td>
                             {% if connection_status.success %}
-                            <span class="badge bg-success">Connected</span>
+                            <span class="badge bg-success text-dark">Connected</span>
                             {% else %}
-                            <span class="badge bg-danger">Failed</span>
+                            <span class="badge bg-danger text-dark">Failed</span>
                             {% endif %}
                         </td>
                     </tr>
@@ -72,16 +82,22 @@
                         <th scope="row">Version</th>
                         <td>{{ connection_status.version }}</td>
                     </tr>
+                    {% if connection_status.connected_url %}
+                    <tr>
+                        <th scope="row">Connected Via</th>
+                        <td><code>{{ connection_status.connected_url }}</code></td>
+                    </tr>
+                    {% endif %}
                     <tr>
                         <th scope="row">Cluster Mode</th>
                         <td>
                             {% if connection_status.cluster_enabled %}
-                            <span class="badge bg-info">
+                            <span class="badge bg-info text-dark">
                                 <i class="mdi mdi-server-network"></i>
                                 Cluster ({{ connection_status.cluster_members }} nodes)
                             </span>
                             <br>
-                            <small class="text-muted">
+                            <small class="text-body-secondary">
                                 A NetBox Cluster will be created automatically during sync.
                             </small>
                             {% else %}
@@ -95,6 +111,62 @@
                         <td class="text-danger">{{ connection_status.message }}</td>
                     </tr>
                     {% endif %}
+                </table>
+            </div>
+        </div>
+        {% endif %}
+
+        {% if object.connection_type == 'https' and configured_urls %}
+        <div class="card mt-3">
+            <h5 class="card-header">
+                Configured URLs
+                <span class="badge bg-secondary text-dark ms-2">{{ configured_urls|length }}</span>
+            </h5>
+            <div class="card-body">
+                <table class="table table-hover attr-table">
+                    <tr>
+                        <th scope="row">URLs</th>
+                        <td>
+                            <ul class="list-unstyled mb-0">
+                                {% for url in configured_urls %}
+                                <li>
+                                    <code>{{ url }}</code>
+                                    {% if url == object.last_working_url %}
+                                    <span class="badge bg-success ms-2 text-dark">cached</span>
+                                    {% endif %}
+                                </li>
+                                {% endfor %}
+                            </ul>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Cache TTL</th>
+                        <td>{{ object.url_cache_ttl }} seconds</td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Cache Status</th>
+                        <td>
+                            {% if object.last_working_url %}
+                            {% if url_cache_valid %}
+                            <span class="badge bg-success text-dark">Valid</span>
+                            <br><small class="text-body-secondary">
+                                Using: <code>{{ object.last_working_url }}</code>
+                                <br>Checked: {{ object.last_working_url_checked|timesince }} ago
+                            </small>
+                            {% else %}
+                            <span class="badge bg-warning text-dark">Expired</span>
+                            <br><small class="text-body-secondary">
+                                Will re-test on next connection
+                            </small>
+                            {% endif %}
+                            {% else %}
+                            <span class="badge bg-secondary">No cache</span>
+                            <br><small class="text-body-secondary">
+                                Will test all URLs on next connection
+                            </small>
+                            {% endif %}
+                        </td>
+                    </tr>
                 </table>
             </div>
         </div>
@@ -114,7 +186,7 @@
                                 {{ object.default_cluster }}
                             </a>
                             {% else %}
-                            <span class="text-muted">Auto (created from Incus if cluster mode)</span>
+                            <span class="text-body-secondary">Auto (created from Incus if cluster mode)</span>
                             {% endif %}
                         </td>
                     </tr>
@@ -150,7 +222,7 @@
                             {% if object.ca_cert_path %}
                             <code>{{ object.ca_cert_path }}</code>
                             {% else %}
-                            <span class="text-muted">Not defined</span>
+                            <span class="text-body-secondary">Not defined</span>
                             {% endif %}
                         </td>
                     </tr>
@@ -158,9 +230,9 @@
                         <th scope="row">Verify SSL</th>
                         <td>
                             {% if object.verify_ssl %}
-                            <span class="badge bg-success">Yes</span>
+                            <span class="badge bg-success text-dark">Yes</span>
                             {% else %}
-                            <span class="badge bg-warning">No</span>
+                            <span class="badge bg-warning text-dark">No</span>
                             {% endif %}
                         </td>
                     </tr>
@@ -172,11 +244,33 @@
         {% include 'inc/panels/tags.html' %}
     </div>
 </div>
+
+<!-- Modal for Test All URLs results -->
+<div class="modal fade" id="testAllUrlsModal" tabindex="-1" aria-labelledby="testAllUrlsModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="testAllUrlsModalLabel">URL Test Results</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body" id="testAllUrlsResults">
+                <div class="text-center">
+                    <i class="mdi mdi-loading mdi-spin mdi-48px"></i>
+                    <p>Testing URLs...</p>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock content %}
 
 {% block javascript %}
 {{ block.super }}
 <script>
+    // Test Connection button
     document.getElementById('test-connection-btn').addEventListener('click', function (e) {
         e.preventDefault();
         const btn = this;
@@ -190,6 +284,9 @@
             .then(data => {
                 if (data.success) {
                     let msg = `Connected to ${data.data.server_name || 'Incus'} v${data.data.version || '?'}`;
+                    if (data.data.connected_url) {
+                        msg += `\nvia: ${data.data.connected_url}`;
+                    }
                     if (data.data.cluster_enabled) {
                         msg += `\nCluster mode: ${data.data.cluster_members} nodes`;
                     } else {
@@ -204,6 +301,9 @@
                     if (data.data.networks && data.data.networks.length > 0) {
                         msg += `\nManaged networks: ${data.data.networks.join(', ')}`;
                     }
+                    if (data.data.cache_valid !== undefined) {
+                        msg += `\nURL cache: ${data.data.cache_valid ? 'valid' : 'expired/empty'}`;
+                    }
                     alert('✅ Connection successful!\n\n' + msg);
                 } else {
                     alert('❌ Connection failed:\n\n' + data.message);
@@ -217,5 +317,116 @@
                 btn.disabled = false;
             });
     });
+
+    // Test All URLs button (if exists)
+    const testAllUrlsBtn = document.getElementById('test-all-urls-btn');
+    if (testAllUrlsBtn) {
+        testAllUrlsBtn.addEventListener('click', function (e) {
+            e.preventDefault();
+            const btn = this;
+            const originalHtml = btn.innerHTML;
+            const modal = new bootstrap.Modal(document.getElementById('testAllUrlsModal'));
+            const resultsDiv = document.getElementById('testAllUrlsResults');
+
+            btn.innerHTML = '<i class="mdi mdi-loading mdi-spin"></i> Testing...';
+            btn.disabled = true;
+
+            // Show modal with loading state
+            resultsDiv.innerHTML = `
+                <div class="text-center">
+                    <i class="mdi mdi-loading mdi-spin mdi-48px"></i>
+                    <p>Testing all URLs... This may take a moment.</p>
+                </div>
+            `;
+            modal.show();
+
+            fetch('{% url "plugins:netbox_incus_sync:incushost_test_all_urls" pk=object.pk %}')
+                .then(response => response.json())
+                .then(data => {
+                    let html = `<p><strong>${data.message}</strong></p>`;
+
+                    if (data.data.urls && data.data.urls.length > 0) {
+                        html += '<table class="table table-sm table-hover">';
+                        html += '<thead><tr><th>URL</th><th>Status</th><th>Message</th></tr></thead>';
+                        html += '<tbody>';
+
+                        for (const urlResult of data.data.urls) {
+                            const statusBadge = urlResult.success
+                                ? '<span class="badge bg-success">OK</span>'
+                                : '<span class="badge bg-danger">Failed</span>';
+                            const isCached = urlResult.url === data.data.cached_url
+                                ? ' <span class="badge bg-info">cached</span>'
+                                : '';
+
+                            html += `<tr>
+                                <td><code>${urlResult.url}</code>${isCached}</td>
+                                <td>${statusBadge}</td>
+                                <td><small>${urlResult.message}</small></td>
+                            </tr>`;
+                        }
+
+                        html += '</tbody></table>';
+                    }
+
+                    if (data.data.cached_url) {
+                        html += `<p class="mt-3"><small class="text-body-secondary">
+                            Cached URL: <code>${data.data.cached_url}</code>
+                            (${data.data.cache_valid ? 'valid' : 'expired'})
+                        </small></p>`;
+                    }
+
+                    resultsDiv.innerHTML = html;
+                })
+                .catch(error => {
+                    resultsDiv.innerHTML = `<div class="alert alert-danger">Error: ${error}</div>`;
+                })
+                .finally(() => {
+                    btn.innerHTML = originalHtml;
+                    btn.disabled = false;
+                });
+        });
+    }
+
+    // Clear Cache button (if exists)
+    const clearCacheBtn = document.getElementById('clear-cache-btn');
+    if (clearCacheBtn) {
+        clearCacheBtn.addEventListener('click', function (e) {
+            e.preventDefault();
+
+            if (!confirm('Clear the URL cache? The system will re-test all URLs on the next connection.')) {
+                return;
+            }
+
+            const btn = this;
+            const originalHtml = btn.innerHTML;
+
+            btn.innerHTML = '<i class="mdi mdi-loading mdi-spin"></i>';
+            btn.disabled = true;
+
+            fetch('{% url "plugins:netbox_incus_sync:incushost_clear_cache" pk=object.pk %}', {
+                method: 'POST',
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'X-CSRFToken': '{{ csrf_token }}'
+                }
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        alert('✅ ' + data.message);
+                        location.reload();
+                    } else {
+                        alert('❌ ' + data.message);
+                    }
+                })
+                .catch(error => {
+                    alert('❌ Error: ' + error);
+                })
+                .finally(() => {
+                    btn.innerHTML = originalHtml;
+                    btn.disabled = false;
+                });
+        });
+    }
 </script>
 {% endblock javascript %}

@@ -1,5 +1,6 @@
 import django_tables2 as tables
 from netbox.tables import NetBoxTable, ChoiceFieldColumn, ToggleColumn
+from django.utils.html import format_html
 from .models import IncusHost
 
 
@@ -23,6 +24,18 @@ class IncusHostTable(NetBoxTable):
         orderable=False
     )
 
+    url_count = tables.Column(
+        verbose_name='URLs',
+        empty_values=(),
+        orderable=False
+    )
+
+    cache_status = tables.Column(
+        verbose_name='Cache',
+        empty_values=(),
+        orderable=False
+    )
+
     enabled = tables.BooleanColumn(
         verbose_name='Enabled'
     )
@@ -39,6 +52,8 @@ class IncusHostTable(NetBoxTable):
             'name',
             'connection_type',
             'connection_info',
+            'url_count',
+            'cache_status',
             'enabled',
             'default_cluster',
             'tags',
@@ -48,6 +63,42 @@ class IncusHostTable(NetBoxTable):
             'name',
             'connection_type',
             'connection_info',
+            'url_count',
+            'cache_status',
             'enabled',
             'default_cluster',
         )
+
+    def render_url_count(self, record):
+        """Render the URL count for HTTPS connections."""
+        if record.connection_type != 'https':
+            return '-'
+        
+        urls = record.get_https_urls()
+        count = len(urls)
+        
+        if count == 0:
+            return format_html('<span class="badge bg-danger text-dark">0</span>')
+        elif count == 1:
+            return format_html('<span class="badge bg-secondary text-dark">1</span>')
+        else:
+            return format_html('<span class="badge bg-info text-dark">{}</span>', count)
+
+    def render_cache_status(self, record):
+        """Render the URL cache status."""
+        if record.connection_type != 'https':
+            return '-'
+        
+        if not record.last_working_url:
+            return format_html('<span class="badge bg-secondary text-dark">none</span>')
+        
+        if record.is_url_cache_valid():
+            return format_html(
+                '<span class="badge bg-success text-dark" title="{}">valid</span>',
+                record.last_working_url
+            )
+        else:
+            return format_html(
+                '<span class="badge bg-warning text-dark" title="{}">expired</span>',
+                record.last_working_url
+            )

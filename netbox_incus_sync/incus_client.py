@@ -37,21 +37,37 @@ class IncusClient:
         """
         self.session = None
         self.base_url = None
+        self._host = host
+        self._client_cert_path = client_cert_path
+        self._client_key_path = client_key_path
+        self._ca_cert_path = ca_cert_path
+        self._verify_ssl = verify_ssl
 
         # If an IncusHost object is passed, extract config
         if host is not None:
             from .models import ConnectionTypeChoices
             if host.connection_type == ConnectionTypeChoices.HTTPS:
-                https_url = host.https_url
-                client_cert_path = host.client_cert_path
-                client_key_path = host.client_key_path
-                ca_cert_path = host.ca_cert_path
-                verify_ssl = host.verify_ssl
+                self._client_cert_path = host.client_cert_path
+                self._client_key_path = host.client_key_path
+                self._ca_cert_path = host.ca_cert_path
+                self._verify_ssl = host.verify_ssl
+                
+                # Use multi-URL logic
+                working_url = self._get_working_url(host)
+                if working_url:
+                    self._setup_https(
+                        working_url,
+                        self._client_cert_path,
+                        self._client_key_path,
+                        self._ca_cert_path,
+                        self._verify_ssl
+                    )
+                else:
+                    raise ConnectionError("No working URL found among configured URLs")
             else:
                 socket_url = host.socket_path
-
-        # Configuration based on connection type
-        if https_url:
+                self._setup_unix_socket(socket_url)
+        elif https_url:
             self._setup_https(
                 https_url, 
                 client_cert_path, 
@@ -64,6 +80,107 @@ class IncusClient:
         else:
             # Fallback to default socket
             self._setup_unix_socket('http+unix://%2Fvar%2Flib%2Fincus%2Funix.socket')
+
+    def _get_working_url(self, host):
+        """
+        Gets a working URL from the host configuration.
+        
+        Strategy:
+        1. If cache is valid, use cached URL directly
+        2. Otherwise, test URLs in order (cached URL first if exists)
+        3. Update cache when a working URL is found
+        
+        Args:
+            host: IncusHost instance
+            
+        Returns:
+            str: Working URL or None
+        """
+        urls = host.get_https_urls()
+        
+        if not urls:
+            logger.error("No HTTPS URLs configured for host")
+            return None
+        
+        # Check if cache is valid - using is_url_cache_valid() method
+        if host.is_url_cache_valid():
+            logger.debug(f"Using cached URL: {host.last_working_url}")
+            return host.last_working_url
+        
+        # Reorder URLs: put cached URL first if it exists
+        if host.last_working_url and host.last_working_url in urls:
+            urls = [host.last_working_url] + [u for u in urls if u != host.last_working_url]
+            logger.debug(f"Testing {len(urls)} URLs, cached URL first")
+        else:
+            logger.debug(f"Testing {len(urls)} URLs")
+        
+        # Test each URL
+        for url in urls:
+            if self._test_url_connection(url, host):
+                logger.info(f"Working URL found: {url}")
+                host.update_working_url(url)
+                return url
+            else:
+                logger.debug(f"URL failed: {url}")
+        
+        logger.error(f"No working URL found among {len(urls)} URLs")
+        return None
+
+    def _test_url_connection(self, url, host):
+        """
+        Tests if a specific URL is reachable.
+        
+        Args:
+            url: URL to test
+            host: IncusHost instance (for certificate config)
+            
+        Returns:
+            bool: True if connection successful
+        """
+        test_session = None
+        try:
+            test_session = requests.Session()
+            
+            # Configure certificates
+            if self._client_cert_path and self._client_key_path:
+                if os.path.isfile(self._client_cert_path) and os.path.isfile(self._client_key_path):
+                    test_session.cert = (self._client_cert_path, self._client_key_path)
+            
+            # Configure SSL verification
+            if self._ca_cert_path and os.path.isfile(self._ca_cert_path):
+                test_session.verify = self._ca_cert_path
+            else:
+                test_session.verify = self._verify_ssl
+                if not self._verify_ssl:
+                    import urllib3
+                    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+            
+            # Quick connection test with short timeout
+            test_url = f"{url.rstrip('/')}/1.0"
+            response = test_session.get(test_url, timeout=5)
+            response.raise_for_status()
+            
+            data = response.json()
+            if data.get('type') == 'sync':
+                return True
+            
+            return False
+            
+        except requests.exceptions.SSLError as e:
+            logger.debug(f"SSL error testing {url}: {e}")
+            return False
+        except requests.exceptions.ConnectionError as e:
+            logger.debug(f"Connection error testing {url}: {e}")
+            return False
+        except requests.exceptions.Timeout as e:
+            logger.debug(f"Timeout testing {url}: {e}")
+            return False
+        except Exception as e:
+            logger.debug(f"Error testing {url}: {e}")
+            return False
+        finally:
+            if test_session:
+                test_session.close()
 
     def _setup_unix_socket(self, socket_url):
         """Configures connection via Unix socket."""
@@ -123,12 +240,18 @@ class IncusClient:
             
         except requests.exceptions.SSLError as e:
             logger.error(f"SSL error connecting to {url}: {e}")
+            # Invalidate cache on SSL errors
+            if self._host:
+                self._host.clear_url_cache()
             raise ConnectionError(
                 f"SSL Error: {e}. "
                 "Check certificates or CA, or disable SSL verification."
             )
         except requests.exceptions.ConnectionError as e:
             logger.error(f"Unable to connect to {url}: {e}")
+            # Invalidate cache on connection errors
+            if self._host:
+                self._host.clear_url_cache()
             raise ConnectionError(f"Unable to connect to Incus: {e}")
         except requests.exceptions.Timeout as e:
             logger.error(f"Timeout connecting to {url}: {e}")
@@ -437,6 +560,7 @@ class IncusClient:
                     'server_name': server_name,
                     'version': version,
                     'cluster_enabled': cluster_enabled,
+                    'connected_url': self.base_url,
                 }
                 
                 if cluster_enabled:
@@ -454,3 +578,41 @@ class IncusClient:
             return False, str(e), {}
         except Exception as e:
             return False, f"Unexpected error: {e}", {}
+
+    def test_all_urls(self, host):
+        """
+        Tests all configured URLs and returns their status.
+        Useful for diagnostics.
+        
+        Args:
+            host: IncusHost instance
+            
+        Returns:
+            list: List of dicts with 'url', 'success', 'message' keys
+        """
+        results = []
+        urls = host.get_https_urls()
+        
+        for url in urls:
+            try:
+                success = self._test_url_connection(url, host)
+                if success:
+                    results.append({
+                        'url': url,
+                        'success': True,
+                        'message': 'Connection successful'
+                    })
+                else:
+                    results.append({
+                        'url': url,
+                        'success': False,
+                        'message': 'Connection failed'
+                    })
+            except Exception as e:
+                results.append({
+                    'url': url,
+                    'success': False,
+                    'message': str(e)
+                })
+        
+        return results

@@ -29,6 +29,11 @@ class IncusHostView(generic.ObjectView):
         """Adds additional information to the context."""
         context = {}
         
+        # URL information for multi-URL hosts
+        if instance.connection_type == 'https':
+            context['configured_urls'] = instance.get_https_urls()
+            context['url_cache_valid'] = instance.is_url_cache_valid()
+        
         # Try to retrieve connection info
         try:
             client = IncusClient(host=instance)
@@ -41,6 +46,7 @@ class IncusHostView(generic.ObjectView):
                 'cluster_members': extra_info.get('cluster_members', 0),
                 'server_name': extra_info.get('server_name', ''),
                 'version': extra_info.get('version', ''),
+                'connected_url': extra_info.get('connected_url', ''),
             }
         except Exception as e:
             context['connection_status'] = {
@@ -130,6 +136,10 @@ class IncusHostTestConnectionView(View):
                     extra_info['networks'] = [n.get('name', '') for n in networks if n.get('managed', False)]
                 except:
                     extra_info['networks'] = []
+                
+                # Add URL cache info
+                extra_info['cached_url'] = host.last_working_url
+                extra_info['cache_valid'] = host.is_url_cache_valid()
             
             return JsonResponse({
                 'success': success,
@@ -143,3 +153,123 @@ class IncusHostTestConnectionView(View):
                 'message': str(e),
                 'data': {},
             }, status=500)
+
+
+class IncusHostTestAllUrlsView(View):
+    """Tests all configured URLs for an Incus host and returns the results."""
+    
+    def get(self, request, pk):
+        host = get_object_or_404(IncusHost, pk=pk)
+        
+        if host.connection_type != 'https':
+            return JsonResponse({
+                'success': False,
+                'message': 'This feature is only for HTTPS connections',
+                'data': {},
+            })
+        
+        try:
+            # Create a client just to use the test method
+            # We need to bypass the normal initialization to test all URLs
+            urls = host.get_https_urls()
+            
+            if not urls:
+                return JsonResponse({
+                    'success': False,
+                    'message': 'No URLs configured',
+                    'data': {'urls': []},
+                })
+            
+            # Test each URL individually
+            results = []
+            import requests
+            import os
+            
+            for url in urls:
+                result = {'url': url, 'success': False, 'message': ''}
+                
+                try:
+                    test_session = requests.Session()
+                    
+                    # Configure certificates
+                    if host.client_cert_path and host.client_key_path:
+                        test_session.cert = (host.client_cert_path, host.client_key_path)
+                    
+                    # Configure SSL verification
+                    if host.ca_cert_path and os.path.isfile(host.ca_cert_path):
+                        test_session.verify = host.ca_cert_path
+                    else:
+                        test_session.verify = host.verify_ssl
+                    
+                    # Quick connection test
+                    test_url = f"{url.rstrip('/')}/1.0"
+                    response = test_session.get(test_url, timeout=5)
+                    response.raise_for_status()
+                    
+                    data = response.json()
+                    if data.get('type') == 'sync':
+                        env = data.get('metadata', {}).get('environment', {})
+                        server_name = env.get('server_name', 'Unknown')
+                        version = env.get('server_version', 'Unknown')
+                        result['success'] = True
+                        result['message'] = f"Connected: {server_name} v{version}"
+                    else:
+                        result['message'] = 'Invalid response'
+                        
+                except requests.exceptions.SSLError as e:
+                    result['message'] = f"SSL Error: {str(e)[:100]}"
+                except requests.exceptions.ConnectionError as e:
+                    result['message'] = f"Connection Error: {str(e)[:100]}"
+                except requests.exceptions.Timeout:
+                    result['message'] = "Timeout (5s)"
+                except Exception as e:
+                    result['message'] = f"Error: {str(e)[:100]}"
+                finally:
+                    try:
+                        test_session.close()
+                    except:
+                        pass
+                
+                results.append(result)
+            
+            working_count = sum(1 for r in results if r['success'])
+            
+            return JsonResponse({
+                'success': working_count > 0,
+                'message': f"{working_count}/{len(results)} URLs working",
+                'data': {
+                    'urls': results,
+                    'cached_url': host.last_working_url,
+                    'cache_valid': host.is_url_cache_valid(),
+                },
+            })
+            
+        except Exception as e:
+            return JsonResponse({
+                'success': False,
+                'message': str(e),
+                'data': {},
+            }, status=500)
+
+
+class IncusHostClearCacheView(View):
+    """Clears the URL cache for an Incus host."""
+    
+    def post(self, request, pk):
+        host = get_object_or_404(IncusHost, pk=pk)
+        
+        old_url = host.last_working_url
+        host.clear_url_cache()
+        
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return JsonResponse({
+                'success': True,
+                'message': f"Cache cleared (was: {old_url or 'empty'})",
+            })
+        
+        messages.success(request, f"URL cache cleared for {host.name}")
+        return redirect('plugins:netbox_incus_sync:incushost', pk=pk)
+    
+    def get(self, request, pk):
+        # Allow GET for simple link-based clearing
+        return self.post(request, pk)

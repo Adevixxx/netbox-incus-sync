@@ -8,6 +8,8 @@ class IncusHostSerializer(NetBoxModelSerializer):
         view_name='plugins-api:netbox_incus_sync-api:incushost-detail'
     )
     connection_url = serializers.ReadOnlyField()
+    configured_urls = serializers.SerializerMethodField()
+    url_cache_valid = serializers.SerializerMethodField()
 
     class Meta:
         model = IncusHost
@@ -19,6 +21,12 @@ class IncusHostSerializer(NetBoxModelSerializer):
             'connection_type',
             'socket_path',
             'https_url',
+            'https_urls',
+            'last_working_url',
+            'last_working_url_checked',
+            'url_cache_ttl',
+            'url_cache_valid',
+            'configured_urls',
             'client_cert_path',
             'client_key_path',
             'ca_cert_path',
@@ -35,3 +43,27 @@ class IncusHostSerializer(NetBoxModelSerializer):
         
         # Do not expose key paths in brief responses
         # to avoid disclosing sensitive information
+        
+        # Make cache fields read-only
+        read_only_fields = ('last_working_url', 'last_working_url_checked')
+
+    def get_configured_urls(self, obj):
+        """Returns the list of all configured HTTPS URLs."""
+        if obj.connection_type == 'https':
+            return obj.get_https_urls()
+        return []
+
+    def get_url_cache_valid(self, obj):
+        """Returns whether the URL cache is currently valid."""
+        return obj.is_url_cache_valid()
+
+
+class IncusHostBriefSerializer(NetBoxModelSerializer):
+    """Brief serializer for nested representations."""
+    url = serializers.HyperlinkedIdentityField(
+        view_name='plugins-api:netbox_incus_sync-api:incushost-detail'
+    )
+
+    class Meta:
+        model = IncusHost
+        fields = ('id', 'url', 'display', 'name', 'connection_type', 'enabled')

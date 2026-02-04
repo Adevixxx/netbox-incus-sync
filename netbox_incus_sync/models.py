@@ -1,7 +1,7 @@
 from django.db import models
 from django.urls import reverse
-from django.core.validators import RegexValidator
 from django.core.exceptions import ValidationError
+from django.utils import timezone
 from netbox.models import NetBoxModel
 import os
 
@@ -63,11 +63,44 @@ class IncusHost(NetBoxModel):
     )
 
     # ========== HTTPS Connection ==========
+    # Single URL
     https_url = models.URLField(
         max_length=255,
         blank=True,
         verbose_name='HTTPS URL',
-        help_text="Ex: https://incus.example.com:8443"
+        help_text="Single URL. Ex: https://incus.example.com:8443 (use 'HTTPS URLs' for multiple servers)"
+    )
+    
+    # Multiple URLs support (new)
+    https_urls = models.TextField(
+        blank=True,
+        verbose_name='HTTPS URLs (Multi-server)',
+        help_text=(
+            "Multiple URLs, one per line. The system will test each until one works.\n"
+            "Example:\n"
+            "https://incus1.example.com:8443\n"
+            "https://incus2.example.com:8443"
+        )
+    )
+    
+    # URL caching for performance
+    last_working_url = models.URLField(
+        max_length=255,
+        blank=True,
+        verbose_name='Last Working URL',
+        help_text="Automatically updated when a connection succeeds"
+    )
+    
+    last_working_url_checked = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name='Last URL Check'
+    )
+    
+    url_cache_ttl = models.IntegerField(
+        default=300,
+        verbose_name='URL Cache TTL (seconds)',
+        help_text="How long to use the cached working URL before re-testing (default: 300s = 5min)"
     )
 
     # Paths to certificate files (NOT the content!)
@@ -129,10 +162,88 @@ class IncusHost(NetBoxModel):
 
     @property
     def connection_url(self):
-        """Returns connection URL based on type."""
+        """Returns connection URL based on type (for display purposes)."""
         if self.connection_type == ConnectionTypeChoices.HTTPS:
+            # Show cached URL if available, otherwise first configured URL
+            if self.last_working_url:
+                return f"{self.last_working_url} (cached)"
+            urls = self.get_https_urls()
+            if urls:
+                if len(urls) == 1:
+                    return urls[0]
+                return f"{urls[0]} (+{len(urls)-1} more)"
             return self.https_url
         return self.socket_path
+
+    # ========== Multi-URL Methods ==========
+    
+    def get_https_urls(self):
+        """
+        Returns the list of all configured HTTPS URLs.
+        Handles both single URL and multi-URL fields.
+        
+        Returns:
+            list: List of URLs to try
+        """
+        urls = []
+        
+        # Add single URL if configured
+        if self.https_url:
+            urls.append(self.https_url.strip())
+        
+        # Add multi-URLs
+        if self.https_urls:
+            for line in self.https_urls.strip().split('\n'):
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+                
+                urls.append(line)
+        
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_urls = []
+        for url in urls:
+            if url not in seen:
+                seen.add(url)
+                unique_urls.append(url)
+        
+        return unique_urls
+
+    def is_url_cache_valid(self):
+        """
+        Checks if the cached working URL is still valid.
+        
+        Returns:
+            bool: True if cache is valid and should be used
+        """
+        if not self.last_working_url:
+            return False
+        
+        if not self.last_working_url_checked:
+            return False
+        
+        age = timezone.now() - self.last_working_url_checked
+        return age.total_seconds() < self.url_cache_ttl
+
+    def update_working_url(self, url):
+        """
+        Updates the cached working URL.
+        
+        Args:
+            url: The URL that successfully connected
+        """
+        self.last_working_url = url
+        self.last_working_url_checked = timezone.now()
+        self.save(update_fields=['last_working_url', 'last_working_url_checked'])
+
+    def clear_url_cache(self):
+        """Clears the cached working URL, forcing a re-test on next connection."""
+        self.last_working_url = ''
+        self.last_working_url_checked = None
+        self.save(update_fields=['last_working_url', 'last_working_url_checked'])
+
+    # ========== Validation ==========
 
     def clean(self):
         """Model validation."""
@@ -145,9 +256,10 @@ class IncusHost(NetBoxModel):
                 })
                 
         elif self.connection_type == ConnectionTypeChoices.HTTPS:
-            if not self.https_url:
+            # Need at least one URL (single or multi)
+            if not self.https_url and not self.https_urls:
                 raise ValidationError({
-                    'https_url': "HTTPS URL is required."
+                    'https_url': "At least one HTTPS URL is required (single or multiple)."
                 })
             if not self.client_cert_path:
                 raise ValidationError({
