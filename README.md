@@ -19,35 +19,46 @@ A NetBox plugin to synchronize Incus instances (containers and VMs) into NetBox.
 - Incus >= 6.0
 - Python 3.10+
 
-## Installation
-
-### Via pip
-```bash
-pip install git+https://github.com/YOUR_USERNAME/netbox-incus-sync.git
+pip install git+https://github.com/Adevixxx/netbox-incus-sync.git
 ```
 
 ### Manual installation
+cd /opt/netbox/netbox
+source /opt/netbox/venv/bin/activate
+git clone https://github.com/Adevixxx/netbox-incus-sync.git
+cd netbox-incus-sync
+pip install .
+```
+
+### Development installation
+
+For development with live code changes:
+
 ```bash
 cd /opt/netbox/netbox
 source /opt/netbox/venv/bin/activate
-git clone https://github.com/YOUR_USERNAME/netbox-incus-sync.git
-pip install -e netbox-incus-sync/
+git clone https://github.com/Adevixxx/netbox-incus-sync.git
+cd netbox-incus-sync
+pip install -e .
 ```
 
 ### Enable the plugin
 
 Add to your `configuration.py`:
+
 ```python
 PLUGINS = ['netbox_incus_sync']
 ```
 
 Apply database migrations:
+
 ```bash
 cd /opt/netbox/netbox
 python manage.py migrate
 ```
 
 Restart NetBox:
+
 ```bash
 systemctl restart netbox netbox-rq
 ```
@@ -155,15 +166,12 @@ The plugin creates these custom fields automatically:
 - [ ] Sync Incus networks to NetBox VLANs
 - [ ] Sync storage pools
 
-## Development
-
-```bash
 # Clone the repo
-git clone https://github.com/YOUR_USERNAME/netbox-incus-sync.git
+git clone https://github.com/Adevixxx/netbox-incus-sync.git
 cd netbox-incus-sync
 
-# Install in development mode
-pip install -e .
+# Install in development mode with dev dependencies
+pip install -e ".[dev]"
 
 # Run NetBox development server
 cd /opt/netbox/netbox

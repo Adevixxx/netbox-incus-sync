@@ -1,0 +1,15 @@
+# Include templates
+recursive-include netbox_incus_sync/templates *.html
+
+# Include static files (if any)
+recursive-include netbox_incus_sync/static *
+
+# Include documentation
+include README.md
+include LICENSE
+
+# Exclude development and test files
+exclude .gitignore
+recursive-exclude * __pycache__
+recursive-exclude * *.py[cod]
+recursive-exclude * .git*
