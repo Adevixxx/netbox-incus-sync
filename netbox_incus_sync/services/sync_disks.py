@@ -1,5 +1,7 @@
 """
 Incus virtual disk synchronization service to NetBox.
+
+Enhanced version with disk usage statistics.
 """
 
 from virtualization.models import VirtualDisk
@@ -17,8 +19,19 @@ class DiskSyncService:
         if self.logger:
             getattr(self.logger, level)(message)
     
-    def sync_instance_disks(self, vm, instance_data, client):
-        """Synchronizes Incus instance disks to NetBox."""
+    def sync_instance_disks(self, vm, instance_data, client, instance_type=None):
+        """
+        Synchronizes Incus instance disks to NetBox.
+        
+        Args:
+            vm: NetBox VirtualMachine instance
+            instance_data: Incus instance data dict
+            client: IncusClient instance
+            instance_type: Optional instance type override ('container' or 'virtual-machine')
+        
+        Returns:
+            int: Number of disks synchronized
+        """
         disks_synced = 0
         
         # Prefer expanded_devices (includes profile-inherited devices)
@@ -36,34 +49,56 @@ class DiskSyncService:
         
         current_disk_names = set()
         
+        # Use provided instance_type or get from instance_data
+        if instance_type is None:
+            instance_type = instance_data.get('type', 'container')
+        
         for disk_name, disk_config in disk_devices.items():
             current_disk_names.add(disk_name)
             
-            disk, created = self._sync_disk(vm, disk_name, disk_config, client)
+            disk, created = self._sync_disk(
+                vm, disk_name, disk_config, client, instance_type
+            )
             
             if disk:
                 disks_synced += 1
                 if created:
-                    self.log('info', f"    Disk created: {disk_name} ({disk.size} MB)")
+                    usage_info = ""
+                    if disk.custom_field_data.get('incus_disk_used'):
+                        used = disk.custom_field_data.get('incus_disk_used', 0)
+                        usage_info = f", used: {used} MB"
+                    self.log('info', f"    Disk created: {disk_name} ({disk.size} MB{usage_info})")
         
         self._cleanup_old_disks(vm, current_disk_names)
         
         return disks_synced
     
-    def _sync_disk(self, vm, disk_name, disk_config, client):
+    def _sync_disk(self, vm, disk_name, disk_config, client, instance_type='container'):
         """Synchronizes an individual disk."""
         path = disk_config.get('path', '')
         pool = disk_config.get('pool', '')
         source = disk_config.get('source', '')
         size_raw = disk_config.get('size', '')
         
+        # Get disk size (allocated/configured size)
         size_mb = self._get_disk_size(
             size_raw=size_raw,
             pool=pool,
             source=source,
             disk_name=disk_name,
             vm_name=vm.name,
-            client=client
+            client=client,
+            instance_type=instance_type
+        )
+        
+        # Get disk usage statistics (actual used space)
+        usage_stats = self._get_disk_usage_stats(
+            pool=pool,
+            source=source,
+            disk_name=disk_name,
+            vm_name=vm.name,
+            client=client,
+            instance_type=instance_type
         )
         
         disk_type = 'root' if disk_name == 'root' or path == '/' else 'data'
@@ -80,13 +115,17 @@ class DiskSyncService:
             defaults=defaults
         )
         
-        self._update_disk_custom_fields(disk, path, pool, source, disk_type)
+        self._update_disk_custom_fields(
+            disk, path, pool, source, disk_type, usage_stats
+        )
         
         return disk, created
     
-    def _update_disk_custom_fields(self, disk, path, pool, source, disk_type):
+    def _update_disk_custom_fields(self, disk, path, pool, source, disk_type, usage_stats=None):
+        """Updates disk Custom Fields including usage statistics."""
         updated = False
         
+        # Basic fields
         if path and disk.custom_field_data.get('incus_mount_path') != path:
             disk.custom_field_data['incus_mount_path'] = path
             updated = True
@@ -106,10 +145,48 @@ class DiskSyncService:
             disk.custom_field_data['incus_disk_type'] = disk_type
             updated = True
         
+        # Usage statistics fields
+        if usage_stats:
+            # Used space in MB
+            if 'used' in usage_stats:
+                used_mb = usage_stats['used']
+                if disk.custom_field_data.get('incus_disk_used') != used_mb:
+                    disk.custom_field_data['incus_disk_used'] = used_mb
+                    updated = True
+            
+            # Total space in MB (may differ from configured size for some drivers)
+            if 'total' in usage_stats:
+                total_mb = usage_stats['total']
+                if disk.custom_field_data.get('incus_disk_total') != total_mb:
+                    disk.custom_field_data['incus_disk_total'] = total_mb
+                    updated = True
+            
+            # Usage percentage (0-100)
+            if 'percentage' in usage_stats:
+                percentage = usage_stats['percentage']
+                if disk.custom_field_data.get('incus_disk_usage_percent') != percentage:
+                    disk.custom_field_data['incus_disk_usage_percent'] = percentage
+                    updated = True
+            
+            # Storage driver type (zfs, btrfs, lvm, dir, etc.)
+            if 'driver' in usage_stats:
+                driver = usage_stats['driver']
+                if disk.custom_field_data.get('incus_storage_driver') != driver:
+                    disk.custom_field_data['incus_storage_driver'] = driver
+                    updated = True
+            
+            # Content type (filesystem or block)
+            if 'content_type' in usage_stats:
+                content_type = usage_stats['content_type']
+                if disk.custom_field_data.get('incus_disk_content_type') != content_type:
+                    disk.custom_field_data['incus_disk_content_type'] = content_type
+                    updated = True
+        
         if updated:
             disk.save()
     
-    def _get_disk_size(self, size_raw, pool, source, disk_name, vm_name, client):
+    def _get_disk_size(self, size_raw, pool, source, disk_name, vm_name, client, instance_type='container'):
+        """Gets the configured/allocated disk size."""
         if size_raw:
             size_mb = parse_size(size_raw)
             if size_mb:
@@ -121,13 +198,89 @@ class DiskSyncService:
                 return size_mb
         
         if disk_name == 'root' and pool:
-            size_mb = self._get_instance_disk_usage(client, pool, vm_name)
+            size_mb = self._get_instance_disk_usage(client, pool, vm_name, instance_type)
             if size_mb:
                 return size_mb
         
         return 0
     
+    def _get_disk_usage_stats(self, pool, source, disk_name, vm_name, client, instance_type='container'):
+        """
+        Gets detailed disk usage statistics from Incus.
+        
+        Returns a dict with:
+        - used: Used space in MB
+        - total: Total space in MB
+        - percentage: Usage percentage (0-100)
+        - driver: Storage driver type
+        - content_type: filesystem or block
+        """
+        stats = {}
+        
+        if not pool:
+            return stats
+        
+        # Get pool info for driver type
+        try:
+            pool_info = client.get_storage_pool_info(pool)
+            if pool_info:
+                stats['driver'] = pool_info.get('driver', '')
+        except Exception as e:
+            self.log('debug', f"    Unable to get pool info for {pool}: {e}")
+        
+        # Determine volume type and name for the API call
+        if source:
+            # Custom volume
+            volume_type = 'custom'
+            volume_name = source
+        elif disk_name == 'root':
+            # Instance root volume
+            volume_type = 'virtual-machine' if instance_type == 'virtual-machine' else 'container'
+            volume_name = vm_name
+        else:
+            return stats
+        
+        # Get volume state (usage info)
+        try:
+            volume_state = client.get_storage_volume_state(pool, volume_type, volume_name)
+            
+            if volume_state:
+                usage = volume_state.get('usage', {})
+                
+                # Used space (in bytes from API, convert to MB)
+                used_bytes = usage.get('used', 0)
+                if used_bytes:
+                    stats['used'] = int(used_bytes / (1024 * 1024))
+                
+                # Total space (in bytes from API, convert to MB)
+                total_bytes = usage.get('total', 0)
+                if total_bytes:
+                    stats['total'] = int(total_bytes / (1024 * 1024))
+                
+                # Calculate percentage
+                if used_bytes and total_bytes and total_bytes > 0:
+                    stats['percentage'] = round((used_bytes / total_bytes) * 100, 1)
+                elif used_bytes and not total_bytes:
+                    # Some drivers don't report total, only used
+                    stats['percentage'] = None
+                
+                self.log('debug', f"    Volume {volume_name} usage: {stats.get('used', 0)} MB / {stats.get('total', 'N/A')} MB")
+                
+        except Exception as e:
+            self.log('debug', f"    Unable to get volume state for {volume_type}/{volume_name}: {e}")
+        
+        # Get volume config for content_type
+        try:
+            volume_info = client.get_storage_volume(pool, volume_type, volume_name)
+            if volume_info:
+                stats['content_type'] = volume_info.get('content_type', 'filesystem')
+        except Exception as e:
+            self.log('debug', f"    Unable to get volume info for {volume_type}/{volume_name}: {e}")
+        
+        return stats
+    
     def _get_volume_size(self, client, pool, volume_name):
+        """Gets the configured size of a custom volume."""
         try:
             volume_info = client.get_storage_volume(pool, 'custom', volume_name)
             if volume_info:
@@ -140,11 +293,11 @@ class DiskSyncService:
         
         return None
     
-    def _get_instance_disk_usage(self, client, pool, instance_name):
+    def _get_instance_disk_usage(self, client, pool, instance_name, instance_type='container'):
+        """Gets the configured size of an instance's root volume."""
         try:
-            volume_info = client.get_storage_volume(pool, 'container', instance_name)
-            if not volume_info:
-                volume_info = client.get_storage_volume(pool, 'virtual-machine', instance_name)
+            volume_type = 'virtual-machine' if instance_type == 'virtual-machine' else 'container'
+            volume_info = client.get_storage_volume(pool, volume_type, instance_name)
             
             if volume_info:
                 config = volume_info.get('config', {})
@@ -157,6 +310,7 @@ class DiskSyncService:
         return None
     
     def _cleanup_old_disks(self, vm, current_disk_names):
+        """Removes disks that no longer exist in Incus."""
         old_disks = VirtualDisk.objects.filter(
             virtual_machine=vm
         ).exclude(name__in=current_disk_names)
