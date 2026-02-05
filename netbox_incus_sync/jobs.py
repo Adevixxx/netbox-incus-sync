@@ -14,6 +14,7 @@ from .services import (
     NetworkSyncService, 
     DiskSyncService, 
     EventSyncService,
+    ConfigContextSyncService,
 )
 from .custom_fields import ensure_custom_fields_exist
 
@@ -29,6 +30,7 @@ class SyncIncusJob(JobRunner):
     - IP Addresses
     - Virtual Disks
     - Events (to Journal Entries)
+    - Config Contexts (Incus configuration data)
     """
     
     class Meta:
@@ -52,6 +54,7 @@ class SyncIncusJob(JobRunner):
         network_service = NetworkSyncService(logger=self.logger)
         disk_service = DiskSyncService(logger=self.logger)
         event_service = EventSyncService(logger=self.logger)
+        config_context_service = ConfigContextSyncService(logger=self.logger)
         
         # Prepare tags
         instance_service.setup()
@@ -65,6 +68,8 @@ class SyncIncusJob(JobRunner):
             'ips_synced': 0,
             'disks_synced': 0,
             'events_synced': 0,
+            'config_contexts_created': 0,
+            'config_contexts_updated': 0,
         }
         
         # Process each host
@@ -75,6 +80,7 @@ class SyncIncusJob(JobRunner):
                 network_service, 
                 disk_service, 
                 event_service,
+                config_context_service,
                 stats
             )
 
@@ -83,11 +89,12 @@ class SyncIncusJob(JobRunner):
             f"Synchronization finished. "
             f"Instances: +{stats['instances_created']} ~{stats['instances_updated']} -{stats['instances_removed']} | "
             f"Interfaces: {stats['interfaces_synced']} | IPs: {stats['ips_synced']} | "
-            f"Disks: {stats['disks_synced']} | Events: {stats['events_synced']}"
+            f"Disks: {stats['disks_synced']} | Events: {stats['events_synced']} | "
+            f"Contexts: +{stats['config_contexts_created']} ~{stats['config_contexts_updated']}"
         )
 
     def _process_host(self, host, instance_service, network_service, disk_service, 
-                      event_service, stats):
+                      event_service, config_context_service, stats):
         """
         Processes an Incus host.
         """
@@ -161,6 +168,15 @@ class SyncIncusJob(JobRunner):
                         vm, instance_data, client
                     )
                     stats['disks_synced'] += disk_count
+                    
+                    # Config Context Sync (to local_context_data)
+                    updated, cc_created = config_context_service.sync_instance_config_context(
+                        vm, instance_data, host
+                    )
+                    if cc_created:
+                        stats['config_contexts_created'] += 1
+                    elif updated:
+                        stats['config_contexts_updated'] += 1
             
             # Handle deletions (using UUIDs)
             deleted = instance_service.handle_deletions(cluster, host, incus_instance_uuids)

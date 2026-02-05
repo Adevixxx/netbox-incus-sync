@@ -3,6 +3,7 @@ from .sync_instances import InstanceSyncService
 from .sync_network import NetworkSyncService
 from .sync_disks import DiskSyncService
 from .sync_events import EventSyncService
+from .sync_config_context import ConfigContextSyncService
 from .sync_utils import parse_memory, parse_size
 
 __all__ = [
@@ -10,6 +11,7 @@ __all__ = [
     'NetworkSyncService',
     'DiskSyncService',
     'EventSyncService',
+    'ConfigContextSyncService',
     'parse_memory',
     'parse_size',
 ]
