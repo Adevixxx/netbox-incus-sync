@@ -144,10 +144,12 @@ class NetworkSyncService:
         try:
             hwaddr_normalized = hwaddr.upper()
             
+            # Check if this interface already has this MAC assigned
             current_primary = interface.primary_mac_address
             if current_primary and str(current_primary.mac_address).upper() == hwaddr_normalized:
                 return
             
+            # Check if a MAC already exists for THIS specific interface
             existing_mac = MACAddress.objects.filter(
                 mac_address=hwaddr_normalized,
                 assigned_object_type=self.vminterface_content_type,
@@ -157,24 +159,15 @@ class NetworkSyncService:
             if existing_mac:
                 mac_obj = existing_mac
             else:
-                existing_mac_elsewhere = MACAddress.objects.filter(
-                    mac_address=hwaddr_normalized
-                ).first()
-                
-                if existing_mac_elsewhere:
-                    existing_mac_elsewhere.assigned_object_type = self.vminterface_content_type
-                    existing_mac_elsewhere.assigned_object_id = interface.pk
-                    existing_mac_elsewhere.save()
-                    mac_obj = existing_mac_elsewhere
-                    self.log('info', f"    MAC reassigned: {hwaddr_normalized}")
-                else:
-                    mac_obj = MACAddress.objects.create(
-                        mac_address=hwaddr_normalized,
-                        assigned_object_type=self.vminterface_content_type,
-                        assigned_object_id=interface.pk,
-                        description=f"Synced from Incus - {interface.virtual_machine.name}",
-                    )
-                    self.log('info', f"    MAC created: {hwaddr_normalized}")
+                # Always create a new MAC address entry, even if the same MAC
+                # exists elsewhere (on another VM/interface)
+                mac_obj = MACAddress.objects.create(
+                    mac_address=hwaddr_normalized,
+                    assigned_object_type=self.vminterface_content_type,
+                    assigned_object_id=interface.pk,
+                    description=f"Synced from Incus - {interface.virtual_machine.name}",
+                )
+                self.log('info', f"    MAC created: {hwaddr_normalized}")
             
             if interface.primary_mac_address_id != mac_obj.pk:
                 interface.primary_mac_address = mac_obj
