@@ -45,7 +45,7 @@ class InstanceSyncService:
     def resolve_cluster(self, host, cluster_info=None):
         """Determines the cluster to use for a host's VMs."""
         if cluster_info and cluster_info.get('enabled'):
-            cluster_name = cluster_info.get('server_name') or f"incus-{host.name}"
+            cluster_name = host.name
             return self._get_or_create_cluster(cluster_name, host)
         
         if host.default_cluster:
