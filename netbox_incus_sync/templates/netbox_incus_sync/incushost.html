@@ -190,6 +190,22 @@
                             {% endif %}
                         </td>
                     </tr>
+                    <tr>
+                        <th scope="row">Default Site</th>
+                        <td>
+                            {% if object.default_site %}
+                            <a href="{{ object.default_site.get_absolute_url }}">
+                                {{ object.default_site }}
+                            </a>
+                            {% else %}
+                            <span class="text-body-secondary">Not set</span>
+                            <br><small class="text-warning">
+                                <i class="mdi mdi-alert-outline"></i>
+                                Required for auto-creating Devices from cluster nodes
+                            </small>
+                            {% endif %}
+                        </td>
+                    </tr>
                 </table>
                 <div class="alert alert-info mt-3 mb-0">
                     <i class="mdi mdi-information-outline"></i>
@@ -198,6 +214,8 @@
                         <li>If Incus is in <strong>cluster mode</strong>: a NetBox Cluster is created automatically</li>
                         <li>If Incus is <strong>standalone</strong>: VMs are created without a cluster (unless you set a
                             default cluster above)</li>
+                        <li>Cluster <strong>nodes</strong> are mapped to NetBox Devices (auto-created if Default Site is
+                            set)</li>
                     </ul>
                 </div>
             </div>

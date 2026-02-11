@@ -5,12 +5,16 @@ Service to synchronize Incus instances to NetBox.
 from datetime import datetime
 from django.utils import timezone
 from virtualization.models import VirtualMachine, Cluster, ClusterType
+from dcim.models import Device, DeviceRole, DeviceType, Manufacturer, Site
 from extras.models import Tag
 
 from .sync_utils import parse_memory, parse_size, ensure_tags_exist
 
 
 INCUS_CLUSTER_TYPE_SLUG = 'incus'
+INCUS_DEVICE_ROLE_SLUG = 'hypervisor'
+INCUS_MANUFACTURER_SLUG = 'generic'
+INCUS_DEVICE_TYPE_SLUG = 'generic-server'
 
 
 class InstanceSyncService:
@@ -20,6 +24,8 @@ class InstanceSyncService:
         self.logger = logger
         self.tags = {}
         self._cluster_type = None
+        self._device_role = None
+        self._device_type = None
     
     def log(self, level, message):
         if self.logger:
@@ -27,6 +33,8 @@ class InstanceSyncService:
     
     def setup(self):
         self.tags = ensure_tags_exist(self.logger)
+    
+    # ========== Cluster Management ==========
     
     @property
     def incus_cluster_type(self):
@@ -67,6 +75,94 @@ class InstanceSyncService:
         
         return cluster
     
+    # ========== Device Management (for cluster nodes) ==========
+    
+    @property
+    def hypervisor_role(self):
+        """Gets or creates the Hypervisor device role."""
+        if self._device_role is None:
+            self._device_role, created = DeviceRole.objects.get_or_create(
+                slug=INCUS_DEVICE_ROLE_SLUG,
+                defaults={
+                    'name': 'Hypervisor',
+                    'description': 'Hypervisor running Incus containers and VMs',
+                    'vm_role': True,
+                }
+            )
+            if created:
+                self.log('info', f"  DeviceRole 'Hypervisor' created")
+        return self._device_role
+    
+    @property
+    def generic_device_type(self):
+        """Gets or creates the Generic Server device type."""
+        if self._device_type is None:
+            manufacturer, mfr_created = Manufacturer.objects.get_or_create(
+                slug=INCUS_MANUFACTURER_SLUG,
+                defaults={
+                    'name': 'Generic',
+                    'description': 'Generic manufacturer for auto-discovered devices',
+                }
+            )
+            if mfr_created:
+                self.log('info', f"  Manufacturer 'Generic' created")
+            
+            self._device_type, dt_created = DeviceType.objects.get_or_create(
+                slug=INCUS_DEVICE_TYPE_SLUG,
+                manufacturer=manufacturer,
+                defaults={
+                    'model': 'Server',
+                    'description': 'Generic server (auto-created by Incus Sync)',
+                }
+            )
+            if dt_created:
+                self.log('info', f"  DeviceType 'Generic Server' created")
+        return self._device_type
+    
+    def resolve_device(self, location, host):
+        """
+        Resolves or creates a Device for an Incus cluster node.
+        
+        Args:
+            location: Incus cluster node name (from instance 'location' field)
+            host: IncusHost instance (for default_site)
+            
+        Returns:
+            Device or None: The Device for this node, or None if no location
+        """
+        if not location:
+            return None
+        
+        # Try to find existing Device by name
+        device = Device.objects.filter(name=location).first()
+        
+        if device:
+            return device
+        
+        # Auto-create the Device
+        site = host.default_site
+        if not site:
+            # Cannot create a Device without a site
+            self.log('warning', 
+                f"  Cannot auto-create Device '{location}': no default_site configured on host '{host.name}'. "
+                f"Set a Default Site on the Incus Host to enable automatic Device creation."
+            )
+            return None
+        
+        device = Device.objects.create(
+            name=location,
+            site=site,
+            device_type=self.generic_device_type,
+            role=self.hypervisor_role,
+            status='active',
+            description=f"Incus cluster node (auto-created by Incus Sync from {host.name})",
+        )
+        
+        self.log('info', f"  Device auto-created: {location} (site: {site.name})")
+        return device
+    
+    # ========== Instance Synchronization ==========
+    
     def sync_instance(self, data, cluster, host):
         """Synchronizes an Incus instance to NetBox."""
         vm_name = data.get('name')
@@ -93,10 +189,14 @@ class InstanceSyncService:
         devices = data.get('devices', {})
         disk_mb = self._extract_disk(expanded_devices if expanded_devices else devices)
         
+        # Resolve Device for cluster node
+        device = self.resolve_device(location, host)
+        
         defaults = {
             'status': nb_status,
             'vcpus': vcpus,
             'cluster': cluster,
+            'device': device,
         }
         
         if memory_mb:
@@ -131,7 +231,7 @@ class InstanceSyncService:
             vm.serial = incus_uuid
             vm.save(update_fields=['serial'])
         
-        self._update_vm_custom_fields(vm, data, host, location)
+        self._update_vm_custom_fields(vm, data, host)
         self._apply_tags(vm, instance_type)
         
         if renamed:
@@ -144,11 +244,12 @@ class InstanceSyncService:
         type_label = "container" if instance_type == 'container' else "VM"
         cluster_info = f" in {cluster.name}" if cluster else " (no cluster)"
         location_info = f" on {location}" if location else ""
+        device_info = f" [device: {device.name}]" if device else ""
         
         # Log resource info for debugging
         mem_str = f"{memory_mb}MB" if memory_mb else "N/A"
         cpu_str = f"{vcpus}" if vcpus else "N/A"
-        self.log('info', f"  {action}: {vm_name} ({type_label}, vCPU={cpu_str}, RAM={mem_str}){cluster_info}{location_info}")
+        self.log('info', f"  {action}: {vm_name} ({type_label}, vCPU={cpu_str}, RAM={mem_str}){cluster_info}{location_info}{device_info}")
         
         return vm, created, not created
     
@@ -161,7 +262,7 @@ class InstanceSyncService:
             serial=incus_uuid
         ).first()
     
-    def _update_vm_custom_fields(self, vm, data, host, location=''):
+    def _update_vm_custom_fields(self, vm, data, host):
         """Updates VM Custom Fields."""
         # Use expanded_config for image info (may come from profile)
         expanded_config = data.get('expanded_config', {})
@@ -217,18 +318,11 @@ class InstanceSyncService:
             del vm.custom_field_data['incus_profiles']
             updated = True
         
-        if location:
-            if vm.custom_field_data.get('incus_location') != location:
-                vm.custom_field_data['incus_location'] = location
+        # Clean up legacy custom fields that are now native fields
+        for legacy_field in ['incus_uuid', 'incus_location']:
+            if legacy_field in vm.custom_field_data:
+                del vm.custom_field_data[legacy_field]
                 updated = True
-        elif 'incus_location' in vm.custom_field_data:
-            del vm.custom_field_data['incus_location']
-            updated = True
-        
-        # Clean up legacy incus_uuid custom field if present
-        if 'incus_uuid' in vm.custom_field_data:
-            del vm.custom_field_data['incus_uuid']
-            updated = True
         
         if updated:
             vm.save()

@@ -149,8 +149,6 @@ CUSTOM_FIELDS = [
         'group_name': 'Incus Usage',
     },
     # ========== Custom Fields for VirtualMachine ==========
-    # Note: incus_uuid is now stored in native VirtualMachine.serial field
-    # Note: Cluster is natively managed by NetBox (VirtualMachine.cluster)
     {
         'name': 'incus_host',
         'label': 'Incus Host',
@@ -212,17 +210,6 @@ CUSTOM_FIELDS = [
         'label': 'Profiles',
         'type': CustomFieldTypeChoices.TYPE_TEXT,
         'description': 'Incus Profiles applied to the instance',
-        'object_types': ['virtualization.virtualmachine'],
-        'ui_visible': CustomFieldUIVisibleChoices.IF_SET,
-        'ui_editable': CustomFieldUIEditableChoices.HIDDEN,
-        'is_cloneable': False,
-        'group_name': 'Incus',
-    },
-    {
-        'name': 'incus_location',
-        'label': 'Cluster Node',
-        'type': CustomFieldTypeChoices.TYPE_TEXT,
-        'description': 'Incus Cluster Node running the instance (if cluster)',
         'object_types': ['virtualization.virtualmachine'],
         'ui_visible': CustomFieldUIVisibleChoices.IF_SET,
         'ui_editable': CustomFieldUIEditableChoices.HIDDEN,

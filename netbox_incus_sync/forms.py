@@ -3,6 +3,7 @@ from netbox.forms import NetBoxModelForm
 from utilities.forms.fields import DynamicModelChoiceField
 from utilities.forms.rendering import FieldSet
 from virtualization.models import Cluster
+from dcim.models import Site
 from .models import IncusHost, ConnectionTypeChoices
 
 
@@ -21,6 +22,13 @@ class IncusHostForm(NetBoxModelForm):
         help_text="NetBox Cluster where synchronized VMs will be created"
     )
 
+    default_site = DynamicModelChoiceField(
+        queryset=Site.objects.all(),
+        required=False,
+        label='Default Site',
+        help_text="Site assigned to auto-created Devices for cluster nodes"
+    )
+
     fieldsets = (
         FieldSet('name', 'connection_type', 'enabled', name='General'),
         FieldSet('socket_path', name='Unix Socket Connection'),
@@ -37,7 +45,7 @@ class IncusHostForm(NetBoxModelForm):
             'verify_ssl', 
             name='HTTPS Connection - Certificates'
         ),
-        FieldSet('default_cluster', 'tags', name='NetBox Association'),
+        FieldSet('default_cluster', 'default_site', 'tags', name='NetBox Association'),
     )
 
     class Meta:
@@ -55,6 +63,7 @@ class IncusHostForm(NetBoxModelForm):
             'verify_ssl',
             'enabled',
             'default_cluster',
+            'default_site',
             'tags',
         )
         widgets = {

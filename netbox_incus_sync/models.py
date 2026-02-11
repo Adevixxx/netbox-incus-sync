@@ -149,6 +149,16 @@ class IncusHost(NetBoxModel):
         verbose_name='Default Cluster'
     )
 
+    default_site = models.ForeignKey(
+        to='dcim.Site',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='incus_hosts',
+        verbose_name='Default Site',
+        help_text="Site assigned to auto-created Devices for cluster nodes"
+    )
+
     class Meta:
         ordering = ('name',)
         verbose_name = 'Incus Host'
