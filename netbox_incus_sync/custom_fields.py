@@ -92,7 +92,18 @@ CUSTOM_FIELDS = [
         'is_cloneable': False,
         'group_name': 'Incus',
     },
-    # ========== NEW: Disk Usage Statistics ==========
+    {
+        'name': 'incus_storage_driver',
+        'label': 'Storage Driver',
+        'type': CustomFieldTypeChoices.TYPE_TEXT,
+        'description': 'Storage driver type (zfs, btrfs, lvm, dir, ceph, etc.)',
+        'object_types': ['virtualization.virtualdisk'],
+        'ui_visible': CustomFieldUIVisibleChoices.IF_SET,
+        'ui_editable': CustomFieldUIEditableChoices.HIDDEN,
+        'is_cloneable': False,
+        'group_name': 'Incus',
+    },
+    # ========== Disk Usage Statistics ==========
     {
         'name': 'incus_disk_used',
         'label': 'Used Space (MB)',
@@ -127,17 +138,6 @@ CUSTOM_FIELDS = [
         'group_name': 'Incus Usage',
     },
     {
-        'name': 'incus_storage_driver',
-        'label': 'Storage Driver',
-        'type': CustomFieldTypeChoices.TYPE_TEXT,
-        'description': 'Storage driver type (zfs, btrfs, lvm, dir, ceph, etc.)',
-        'object_types': ['virtualization.virtualdisk'],
-        'ui_visible': CustomFieldUIVisibleChoices.IF_SET,
-        'ui_editable': CustomFieldUIEditableChoices.HIDDEN,
-        'is_cloneable': False,
-        'group_name': 'Incus Usage',
-    },
-    {
         'name': 'incus_disk_content_type',
         'label': 'Content Type',
         'type': CustomFieldTypeChoices.TYPE_TEXT,
@@ -149,18 +149,8 @@ CUSTOM_FIELDS = [
         'group_name': 'Incus Usage',
     },
     # ========== Custom Fields for VirtualMachine ==========
+    # Note: incus_uuid is now stored in native VirtualMachine.serial field
     # Note: Cluster is natively managed by NetBox (VirtualMachine.cluster)
-    {
-        'name': 'incus_uuid',
-        'label': 'Incus UUID',
-        'type': CustomFieldTypeChoices.TYPE_TEXT,
-        'description': 'Unique Incus Instance UUID (volatile.uuid) - used for tracking',
-        'object_types': ['virtualization.virtualmachine'],
-        'ui_visible': CustomFieldUIVisibleChoices.IF_SET,
-        'ui_editable': CustomFieldUIEditableChoices.HIDDEN,
-        'is_cloneable': False,
-        'group_name': 'Incus',
-    },
     {
         'name': 'incus_host',
         'label': 'Incus Host',

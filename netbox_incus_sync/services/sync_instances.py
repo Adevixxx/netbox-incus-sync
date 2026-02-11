@@ -126,7 +126,12 @@ class InstanceSyncService:
                 **defaults
             )
         
-        self._update_vm_custom_fields(vm, data, host, location, incus_uuid)
+        # Store UUID in native serial field
+        if incus_uuid and vm.serial != incus_uuid:
+            vm.serial = incus_uuid
+            vm.save(update_fields=['serial'])
+        
+        self._update_vm_custom_fields(vm, data, host, location)
         self._apply_tags(vm, instance_type)
         
         if renamed:
@@ -148,15 +153,15 @@ class InstanceSyncService:
         return vm, created, not created
     
     def _find_existing_vm(self, incus_uuid, host):
-        """Searches for an existing VM by UUID."""
+        """Searches for an existing VM by UUID (stored in native serial field)."""
         if not incus_uuid:
             return None
         
         return VirtualMachine.objects.filter(
-            custom_field_data__incus_uuid=incus_uuid
+            serial=incus_uuid
         ).first()
     
-    def _update_vm_custom_fields(self, vm, data, host, location='', incus_uuid=''):
+    def _update_vm_custom_fields(self, vm, data, host, location=''):
         """Updates VM Custom Fields."""
         # Use expanded_config for image info (may come from profile)
         expanded_config = data.get('expanded_config', {})
@@ -177,10 +182,6 @@ class InstanceSyncService:
         ).strip()
         
         updated = False
-        
-        if incus_uuid and vm.custom_field_data.get('incus_uuid') != incus_uuid:
-            vm.custom_field_data['incus_uuid'] = incus_uuid
-            updated = True
         
         if vm.custom_field_data.get('incus_host') != host.name:
             vm.custom_field_data['incus_host'] = host.name
@@ -224,6 +225,11 @@ class InstanceSyncService:
             del vm.custom_field_data['incus_location']
             updated = True
         
+        # Clean up legacy incus_uuid custom field if present
+        if 'incus_uuid' in vm.custom_field_data:
+            del vm.custom_field_data['incus_uuid']
+            updated = True
+        
         if updated:
             vm.save()
     
@@ -258,7 +264,8 @@ class InstanceSyncService:
         )
         
         for vm in managed_vms:
-            vm_uuid = vm.custom_field_data.get('incus_uuid', '')
+            # UUID is now in native serial field
+            vm_uuid = vm.serial or ''
             
             if vm_uuid and vm_uuid not in incus_instance_uuids:
                 vm_name = vm.name
