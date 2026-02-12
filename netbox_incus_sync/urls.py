@@ -12,7 +12,7 @@ urlpatterns = [
     
     # Synchronization
     path('sync/', views.IncusSyncView.as_view(), name='sync'),
-    path('sync/events/', views.IncusSyncEventsView.as_view(), name='sync_events'),
+    path('sync/logs/', views.IncusSyncLogsView.as_view(), name='sync_logs'),
     
     # VM Screenshot
     path('vm/<int:pk>/screenshot/', views.IncusVMScreenshotView.as_view(), name='vm_screenshot'),

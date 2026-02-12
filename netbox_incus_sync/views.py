@@ -118,7 +118,7 @@ class IncusHostBulkDeleteView(generic.BulkDeleteView):
 # ============================================
 
 class IncusSyncView(View):
-    """Starts full Incus synchronization (instances, network, disks, events, cluster)."""
+    """Starts full Incus synchronization (instances, network, disks, logs, cluster)."""
     
     def get(self, request):
         job = SyncIncusJob.enqueue()
@@ -126,12 +126,12 @@ class IncusSyncView(View):
         return redirect('plugins:netbox_incus_sync:incushost_list')
 
 
-class IncusSyncEventsView(View):
-    """Starts Incus events synchronization only."""
+class IncusSyncLogsView(View):
+    """Starts Incus instance logs synchronization only."""
     
     def get(self, request):
         job = SyncEventsJob.enqueue()
-        messages.success(request, f"Incus events synchronization started (Job #{job.pk})")
+        messages.success(request, f"Incus logs synchronization started (Job #{job.pk})")
         return redirect('plugins:netbox_incus_sync:incushost_list')
 
 

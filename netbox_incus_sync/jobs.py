@@ -29,7 +29,7 @@ class SyncIncusJob(JobRunner):
     - Network Interfaces
     - IP Addresses
     - Virtual Disks
-    - Events (to Journal Entries)
+    - Instance logs (QEMU logs to Journal Entries)
     - Config Contexts (Incus configuration data)
     """
     
@@ -67,7 +67,7 @@ class SyncIncusJob(JobRunner):
             'interfaces_synced': 0,
             'ips_synced': 0,
             'disks_synced': 0,
-            'events_synced': 0,
+            'logs_synced': 0,
             'config_contexts_created': 0,
             'config_contexts_updated': 0,
         }
@@ -89,7 +89,7 @@ class SyncIncusJob(JobRunner):
             f"Synchronization finished. "
             f"Instances: +{stats['instances_created']} ~{stats['instances_updated']} -{stats['instances_removed']} | "
             f"Interfaces: {stats['interfaces_synced']} | IPs: {stats['ips_synced']} | "
-            f"Disks: {stats['disks_synced']} | Events: {stats['events_synced']} | "
+            f"Disks: {stats['disks_synced']} | Logs: {stats['logs_synced']} | "
             f"Contexts: +{stats['config_contexts_created']} ~{stats['config_contexts_updated']}"
         )
 
@@ -182,10 +182,10 @@ class SyncIncusJob(JobRunner):
             deleted = instance_service.handle_deletions(cluster, host, incus_instance_uuids)
             stats['instances_removed'] += deleted
             
-            # Events synchronization
-            self.logger.info(f"  Synchronizing events...")
-            events_count = event_service.sync_events(host, client, since_minutes=60)
-            stats['events_synced'] += events_count
+            # Instance logs synchronization (QEMU logs -> Journal Entries)
+            self.logger.info(f"  Synchronizing instance logs...")
+            logs_count = event_service.sync_events(host, client)
+            stats['logs_synced'] += logs_count
             
             # Log Incus networks (informative)
             networks = client.get_networks()
@@ -238,20 +238,17 @@ class SyncIncusJob(JobRunner):
 
 class SyncEventsJob(JobRunner):
     """
-    Job dedicated to Incus events synchronization.
+    Job dedicated to Incus instance logs synchronization.
     
-    Can be executed more frequently than the full sync job
-    to capture events quickly.
+    Fetches QEMU log files from VM instances and stores them
+    as Journal Entries in NetBox.
     """
     
     class Meta:
-        name = "Incus Events Synchronization"
+        name = "Incus Logs Synchronization"
 
     def run(self, *args, **kwargs):
-        # Optional parameter: time window in minutes
-        since_minutes = kwargs.get('since_minutes', 30)
-        
-        self.logger.info(f"Synchronizing Incus events (last {since_minutes} min)...")
+        self.logger.info(f"Synchronizing Incus instance logs...")
         
         hosts = IncusHost.objects.filter(enabled=True)
         
@@ -260,7 +257,7 @@ class SyncEventsJob(JobRunner):
             return
 
         event_service = EventSyncService(logger=self.logger)
-        total_events = 0
+        total_logs = 0
         
         for host in hosts:
             self.logger.info(f"  Host: {host.name}")
@@ -273,10 +270,10 @@ class SyncEventsJob(JobRunner):
                     self.logger.error(f"    Connection failure: {message}")
                     continue
                 
-                events_count = event_service.sync_events(host, client, since_minutes)
-                total_events += events_count
+                logs_count = event_service.sync_events(host, client)
+                total_logs += logs_count
                 
             except Exception as e:
                 self.logger.error(f"    Error: {e}")
         
-        self.logger.info(f"Finished. {total_events} events synchronized.")
+        self.logger.info(f"Finished. {total_logs} log entries synchronized.")
