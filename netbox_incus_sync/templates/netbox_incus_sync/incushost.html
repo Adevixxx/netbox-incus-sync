@@ -263,6 +263,9 @@
     </div>
 </div>
 
+{# Hidden CSRF token for AJAX requests #}
+{% csrf_token %}
+
 {# ============================================ #}
 {# Managed VMs with VGA Screenshots #}
 {# ============================================ #}
@@ -399,6 +402,12 @@
     // CSRF Token helper
     // ==========================================
     function getCsrfToken() {
+        // Try hidden input first (most reliable with Django)
+        var input = document.querySelector('input[name="csrfmiddlewaretoken"]');
+        if (input) {
+            return input.value;
+        }
+        // Fallback to cookie
         var cookieValue = null;
         if (document.cookie && document.cookie !== '') {
             var cookies = document.cookie.split(';');
@@ -435,7 +444,16 @@
                     'X-CSRFToken': getCsrfToken()
                 }
             })
-                .then(function (response) { return response.json(); })
+                .then(function (response) {
+                    if (!response.ok && response.status === 403) {
+                        throw new Error('CSRF error (403 Forbidden). Try refreshing the page.');
+                    }
+                    var contentType = response.headers.get('content-type');
+                    if (contentType && contentType.indexOf('application/json') !== -1) {
+                        return response.json();
+                    }
+                    throw new Error('Unexpected response (status ' + response.status + '). Try refreshing the page.');
+                })
                 .then(function (data) {
                     if (data.success) {
                         // Update the screenshot cell with the new image
