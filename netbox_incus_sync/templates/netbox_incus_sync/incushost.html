@@ -263,6 +263,113 @@
     </div>
 </div>
 
+{# ============================================ #}
+{# Managed VMs with VGA Screenshots #}
+{# ============================================ #}
+{% if managed_vms %}
+<div class="row mb-3">
+    <div class="col-md-12">
+        <div class="card">
+            <h5 class="card-header">
+                <i class="mdi mdi-monitor-screenshot"></i>
+                Managed Instances
+                <span class="badge bg-secondary text-dark ms-2">{{ managed_vms_count }}</span>
+            </h5>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Instance</th>
+                                <th>Type</th>
+                                <th>Status</th>
+                                <th>VGA Screenshot</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in managed_vms %}
+                            <tr id="vm-row-{{ item.vm.pk }}">
+                                <td>
+                                    <a href="{{ item.vm.get_absolute_url }}">{{ item.vm.name }}</a>
+                                </td>
+                                <td>
+                                    {% if item.instance_type == 'container' %}
+                                    <span class="badge bg-primary text-dark">Container</span>
+                                    {% else %}
+                                    <span class="badge bg-purple text-dark">VM</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if item.vm.status == 'active' %}
+                                    <span class="badge bg-success text-dark">Running</span>
+                                    {% else %}
+                                    <span class="badge bg-secondary text-dark">{{ item.vm.status }}</span>
+                                    {% endif %}
+                                </td>
+                                <td id="screenshot-cell-{{ item.vm.pk }}">
+                                    {% if item.screenshot %}
+                                    <a href="{{ item.screenshot.image.url }}" target="_blank"
+                                        title="Click to view full size">
+                                        <img src="{{ item.screenshot.image.url }}" class="img-thumbnail"
+                                            style="max-height: 80px; max-width: 140px;"
+                                            alt="Screenshot {{ item.vm.name }}">
+                                    </a>
+                                    <br>
+                                    <small class="text-body-secondary">
+                                        {{ item.screenshot.created|timesince }} ago
+                                    </small>
+                                    {% elif item.is_vm %}
+                                    <span class="text-body-secondary">
+                                        <i class="mdi mdi-monitor-off"></i> No screenshot
+                                    </span>
+                                    {% else %}
+                                    <span class="text-body-secondary">
+                                        <i class="mdi mdi-minus"></i> N/A
+                                    </span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if item.is_vm %}
+                                    <button type="button" class="btn btn-sm btn-outline-primary screenshot-btn"
+                                        data-vm-pk="{{ item.vm.pk }}" data-vm-name="{{ item.vm.name }}"
+                                        data-url="{% url 'plugins:netbox_incus_sync:vm_screenshot' pk=item.vm.pk %}"
+                                        title="Capture VGA screenshot">
+                                        <i class="mdi mdi-camera"></i>
+                                        {% if item.screenshot %}Update{% else %}Capture{% endif %}
+                                    </button>
+                                    {% else %}
+                                    <span class="text-body-secondary" title="VGA screenshots only available for VMs">
+                                        <i class="mdi mdi-camera-off"></i>
+                                    </span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Modal for screenshot preview -->
+<div class="modal fade" id="screenshotPreviewModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="screenshotPreviewTitle">VGA Screenshot</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body text-center" id="screenshotPreviewBody">
+                <img id="screenshotPreviewImg" src="" class="img-fluid rounded" alt="Screenshot">
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Modal for Test All URLs results -->
 <div class="modal fade" id="testAllUrlsModal" tabindex="-1" aria-labelledby="testAllUrlsModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-lg">
@@ -288,125 +395,198 @@
 {% block javascript %}
 {{ block.super }}
 <script>
+    // ==========================================
+    // CSRF Token helper
+    // ==========================================
+    function getCsrfToken() {
+        var cookieValue = null;
+        if (document.cookie && document.cookie !== '') {
+            var cookies = document.cookie.split(';');
+            for (var i = 0; i < cookies.length; i++) {
+                var cookie = cookies[i].trim();
+                if (cookie.substring(0, 10) === 'csrftoken=') {
+                    cookieValue = decodeURIComponent(cookie.substring(10));
+                    break;
+                }
+            }
+        }
+        return cookieValue;
+    }
+
+    // ==========================================
+    // Screenshot buttons
+    // ==========================================
+    document.querySelectorAll('.screenshot-btn').forEach(function (btn) {
+        btn.addEventListener('click', function (e) {
+            e.preventDefault();
+            var vmPk = this.getAttribute('data-vm-pk');
+            var vmName = this.getAttribute('data-vm-name');
+            var actionUrl = this.getAttribute('data-url');
+            var originalHtml = this.innerHTML;
+            var button = this;
+
+            button.innerHTML = '<i class="mdi mdi-loading mdi-spin"></i>';
+            button.disabled = true;
+
+            fetch(actionUrl, {
+                method: 'POST',
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'X-CSRFToken': getCsrfToken()
+                }
+            })
+                .then(function (response) { return response.json(); })
+                .then(function (data) {
+                    if (data.success) {
+                        // Update the screenshot cell with the new image
+                        var cell = document.getElementById('screenshot-cell-' + vmPk);
+                        if (cell && data.screenshot_url) {
+                            cell.innerHTML =
+                                '<a href="' + data.screenshot_url + '" target="_blank" title="Click to view full size">' +
+                                '<img src="' + data.screenshot_url + '" class="img-thumbnail" ' +
+                                'style="max-height: 80px; max-width: 140px;" alt="Screenshot ' + vmName + '">' +
+                                '</a><br><small class="text-body-secondary">just now</small>';
+                        }
+                        button.innerHTML = '<i class="mdi mdi-camera"></i> Update';
+                        button.disabled = false;
+                    } else {
+                        alert('\u274c ' + data.message);
+                        button.innerHTML = originalHtml;
+                        button.disabled = false;
+                    }
+                })
+                .catch(function (error) {
+                    alert('\u274c Error: ' + error);
+                    button.innerHTML = originalHtml;
+                    button.disabled = false;
+                });
+        });
+    });
+
+    // ==========================================
     // Test Connection button
+    // ==========================================
     document.getElementById('test-connection-btn').addEventListener('click', function (e) {
         e.preventDefault();
-        const btn = this;
-        const originalHtml = btn.innerHTML;
+        var btn = this;
+        var originalHtml = btn.innerHTML;
 
         btn.innerHTML = '<i class="mdi mdi-loading mdi-spin"></i> Testing...';
         btn.disabled = true;
 
         fetch('{% url "plugins:netbox_incus_sync:incushost_test_connection" pk=object.pk %}')
-            .then(response => response.json())
-            .then(data => {
+            .then(function (response) { return response.json(); })
+            .then(function (data) {
                 if (data.success) {
-                    let msg = `Connected to ${data.data.server_name || 'Incus'} v${data.data.version || '?'}`;
+                    var msg = 'Connected to ' + (data.data.server_name || 'Incus') + ' v' + (data.data.version || '?');
                     if (data.data.connected_url) {
-                        msg += `\nvia: ${data.data.connected_url}`;
+                        msg += '\nvia: ' + data.data.connected_url;
                     }
                     if (data.data.cluster_enabled) {
-                        msg += `\nCluster mode: ${data.data.cluster_members} nodes`;
+                        msg += '\nCluster mode: ' + data.data.cluster_members + ' nodes';
                     } else {
-                        msg += `\nStandalone mode`;
+                        msg += '\nStandalone mode';
                     }
                     if (data.data.instances_count !== undefined) {
-                        msg += `\nInstances: ${data.data.instances_count}`;
+                        msg += '\nInstances: ' + data.data.instances_count;
                     }
                     if (data.data.storage_pools && data.data.storage_pools.length > 0) {
-                        msg += `\nStorage pools: ${data.data.storage_pools.join(', ')}`;
+                        msg += '\nStorage pools: ' + data.data.storage_pools.join(', ');
                     }
                     if (data.data.networks && data.data.networks.length > 0) {
-                        msg += `\nManaged networks: ${data.data.networks.join(', ')}`;
+                        msg += '\nManaged networks: ' + data.data.networks.join(', ');
                     }
                     if (data.data.cache_valid !== undefined) {
-                        msg += `\nURL cache: ${data.data.cache_valid ? 'valid' : 'expired/empty'}`;
+                        msg += '\nURL cache: ' + (data.data.cache_valid ? 'valid' : 'expired/empty');
                     }
-                    alert('✅ Connection successful!\n\n' + msg);
+                    alert('\u2705 Connection successful!\n\n' + msg);
                 } else {
-                    alert('❌ Connection failed:\n\n' + data.message);
+                    alert('\u274c Connection failed:\n\n' + data.message);
                 }
             })
-            .catch(error => {
-                alert('❌ Error: ' + error);
+            .catch(function (error) {
+                alert('\u274c Error: ' + error);
             })
-            .finally(() => {
+            .finally(function () {
                 btn.innerHTML = originalHtml;
                 btn.disabled = false;
             });
     });
 
-    // Test All URLs button (if exists)
-    const testAllUrlsBtn = document.getElementById('test-all-urls-btn');
+    // ==========================================
+    // Test All URLs button
+    // ==========================================
+    var testAllUrlsBtn = document.getElementById('test-all-urls-btn');
     if (testAllUrlsBtn) {
         testAllUrlsBtn.addEventListener('click', function (e) {
             e.preventDefault();
-            const btn = this;
-            const originalHtml = btn.innerHTML;
-            const modal = new bootstrap.Modal(document.getElementById('testAllUrlsModal'));
-            const resultsDiv = document.getElementById('testAllUrlsResults');
+            var btn = this;
+            var originalHtml = btn.innerHTML;
+            var modal = new bootstrap.Modal(document.getElementById('testAllUrlsModal'));
+            var resultsDiv = document.getElementById('testAllUrlsResults');
 
             btn.innerHTML = '<i class="mdi mdi-loading mdi-spin"></i> Testing...';
             btn.disabled = true;
 
-            // Show modal with loading state
-            resultsDiv.innerHTML = `
-                <div class="text-center">
-                    <i class="mdi mdi-loading mdi-spin mdi-48px"></i>
-                    <p>Testing all URLs... This may take a moment.</p>
-                </div>
-            `;
+            resultsDiv.innerHTML =
+                '<div class="text-center">' +
+                '<i class="mdi mdi-loading mdi-spin mdi-48px"></i>' +
+                '<p>Testing all URLs... This may take a moment.</p>' +
+                '</div>';
             modal.show();
 
             fetch('{% url "plugins:netbox_incus_sync:incushost_test_all_urls" pk=object.pk %}')
-                .then(response => response.json())
-                .then(data => {
-                    let html = `<p><strong>${data.message}</strong></p>`;
+                .then(function (response) { return response.json(); })
+                .then(function (data) {
+                    var html = '<p><strong>' + data.message + '</strong></p>';
 
                     if (data.data.urls && data.data.urls.length > 0) {
                         html += '<table class="table table-sm table-hover">';
                         html += '<thead><tr><th>URL</th><th>Status</th><th>Message</th></tr></thead>';
                         html += '<tbody>';
 
-                        for (const urlResult of data.data.urls) {
-                            const statusBadge = urlResult.success
+                        for (var i = 0; i < data.data.urls.length; i++) {
+                            var urlResult = data.data.urls[i];
+                            var statusBadge = urlResult.success
                                 ? '<span class="badge bg-success">OK</span>'
                                 : '<span class="badge bg-danger">Failed</span>';
-                            const isCached = urlResult.url === data.data.cached_url
+                            var isCached = urlResult.url === data.data.cached_url
                                 ? ' <span class="badge bg-info">cached</span>'
                                 : '';
 
-                            html += `<tr>
-                                <td><code>${urlResult.url}</code>${isCached}</td>
-                                <td>${statusBadge}</td>
-                                <td><small>${urlResult.message}</small></td>
-                            </tr>`;
+                            html += '<tr>' +
+                                '<td><code>' + urlResult.url + '</code>' + isCached + '</td>' +
+                                '<td>' + statusBadge + '</td>' +
+                                '<td><small>' + urlResult.message + '</small></td>' +
+                                '</tr>';
                         }
 
                         html += '</tbody></table>';
                     }
 
                     if (data.data.cached_url) {
-                        html += `<p class="mt-3"><small class="text-body-secondary">
-                            Cached URL: <code>${data.data.cached_url}</code>
-                            (${data.data.cache_valid ? 'valid' : 'expired'})
-                        </small></p>`;
+                        html += '<p class="mt-3"><small class="text-body-secondary">' +
+                            'Cached URL: <code>' + data.data.cached_url + '</code> ' +
+                            '(' + (data.data.cache_valid ? 'valid' : 'expired') + ')' +
+                            '</small></p>';
                     }
 
                     resultsDiv.innerHTML = html;
                 })
-                .catch(error => {
-                    resultsDiv.innerHTML = `<div class="alert alert-danger">Error: ${error}</div>`;
+                .catch(function (error) {
+                    resultsDiv.innerHTML = '<div class="alert alert-danger">Error: ' + error + '</div>';
                 })
-                .finally(() => {
+                .finally(function () {
                     btn.innerHTML = originalHtml;
                     btn.disabled = false;
                 });
         });
     }
 
-    // Clear Cache button (if exists)
-    const clearCacheBtn = document.getElementById('clear-cache-btn');
+    // ==========================================
+    // Clear Cache button
+    // ==========================================
+    var clearCacheBtn = document.getElementById('clear-cache-btn');
     if (clearCacheBtn) {
         clearCacheBtn.addEventListener('click', function (e) {
             e.preventDefault();
@@ -415,8 +595,8 @@
                 return;
             }
 
-            const btn = this;
-            const originalHtml = btn.innerHTML;
+            var btn = this;
+            var originalHtml = btn.innerHTML;
 
             btn.innerHTML = '<i class="mdi mdi-loading mdi-spin"></i>';
             btn.disabled = true;
@@ -425,22 +605,22 @@
                 method: 'POST',
                 headers: {
                     'X-Requested-With': 'XMLHttpRequest',
-                    'X-CSRFToken': '{{ csrf_token }}'
+                    'X-CSRFToken': getCsrfToken()
                 }
             })
-                .then(response => response.json())
-                .then(data => {
+                .then(function (response) { return response.json(); })
+                .then(function (data) {
                     if (data.success) {
-                        alert('✅ ' + data.message);
+                        alert('\u2705 ' + data.message);
                         location.reload();
                     } else {
-                        alert('❌ ' + data.message);
+                        alert('\u274c ' + data.message);
                     }
                 })
-                .catch(error => {
-                    alert('❌ Error: ' + error);
+                .catch(function (error) {
+                    alert('\u274c Error: ' + error);
                 })
-                .finally(() => {
+                .finally(function () {
                     btn.innerHTML = originalHtml;
                     btn.disabled = false;
                 });

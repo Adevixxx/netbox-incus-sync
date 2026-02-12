@@ -333,6 +333,49 @@ class IncusClient:
             logger.debug(f"Unable to read log {log_file} for {name}: {e}")
         return None
 
+    # ========== Console / Screenshot API ==========
+
+    def get_instance_screenshot(self, name):
+        """
+        Captures a VGA console screenshot of a virtual machine.
+        
+        Only works for VMs (not containers) that are running.
+        Uses the GET /1.0/instances/NAME/console?type=vga endpoint
+        which returns a PNG image.
+        
+        Requires Incus >= 6.7 (api extension: instance_console_screenshot).
+        
+        Args:
+            name: Instance name
+        
+        Returns:
+            bytes: PNG image data, or None if unavailable
+        """
+        url = f"{self.base_url}/1.0/instances/{name}/console?type=vga"
+        
+        try:
+            response = self.session.get(url, timeout=15)
+            response.raise_for_status()
+            
+            # The endpoint returns raw PNG data
+            content_type = response.headers.get('Content-Type', '')
+            if 'image' in content_type or response.content[:4] == b'\x89PNG':
+                return response.content
+            
+            # If we got JSON back, it's probably an error
+            logger.warning(f"Screenshot for {name}: unexpected content type {content_type}")
+            return None
+            
+        except requests.exceptions.HTTPError as e:
+            if e.response is not None and e.response.status_code == 400:
+                logger.debug(f"Screenshot not available for {name} (possibly a container or stopped VM)")
+            else:
+                logger.warning(f"HTTP error getting screenshot for {name}: {e}")
+            return None
+        except Exception as e:
+            logger.debug(f"Unable to capture screenshot for {name}: {e}")
+            return None
+
     def get_server_info(self):
         """Retrieves Incus server information."""
         data = self._request('GET', '/1.0')
@@ -417,20 +460,13 @@ class IncusClient:
         """
         Retrieves the state/usage information for a storage volume.
         
-        
         Args:
             pool: Storage pool name
             volume_type: Volume type ('container', 'virtual-machine', 'custom')
             volume_name: Volume name
         
         Returns:
-            dict: Volume state with usage info:
-                {
-                    'usage': {
-                        'used': <bytes>,
-                        'total': <bytes>  # Not always available
-                    }
-                }
+            dict: Volume state with usage info
         """
         try:
             data = self._request(
@@ -466,12 +502,6 @@ class IncusClient:
         """
         Retrieves the list of operations (action history).
         
-        Operations include instance lifecycle events:
-        - Creating/Starting/Stopping/Deleting instances
-        - Snapshots
-        - Backups
-        - Migrations
-        
         Args:
             recursion: Detail level (0=IDs, 1=full details)
         
@@ -483,7 +513,6 @@ class IncusClient:
             if data.get('type') == 'sync':
                 metadata = data.get('metadata', {})
                 
-                # Operations are grouped by status: running, success, failure
                 all_operations = []
                 
                 if isinstance(metadata, dict):
@@ -667,7 +696,6 @@ class IncusClient:
     def test_all_urls(self, host):
         """
         Tests all configured URLs and returns their status.
-        Useful for diagnostics.
         
         Args:
             host: IncusHost instance

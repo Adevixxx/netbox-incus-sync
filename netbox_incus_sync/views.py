@@ -1,9 +1,14 @@
 from django.contrib import messages
+from django.contrib.contenttypes.models import ContentType
 from django.shortcuts import redirect, get_object_or_404
 from django.views import View
 from django.http import JsonResponse
+from django.core.files.base import ContentFile
+from django.utils import timezone
 from netbox.views import generic
 from utilities.views import register_model_view
+from extras.models import ImageAttachment
+from virtualization.models import VirtualMachine
 
 from .models import IncusHost
 from .forms import IncusHostForm
@@ -54,6 +59,36 @@ class IncusHostView(generic.ObjectView):
                 'message': str(e),
             }
         
+        # Retrieve VMs managed by this host
+        managed_vms = VirtualMachine.objects.filter(
+            custom_field_data__incus_host=instance.name
+        ).order_by('name')
+        
+        # Get existing screenshots for these VMs
+        vm_ct = ContentType.objects.get_for_model(VirtualMachine)
+        screenshots = {}
+        for attachment in ImageAttachment.objects.filter(
+            object_type=vm_ct,
+            object_id__in=managed_vms.values_list('pk', flat=True),
+            name__startswith='incus-screenshot-'
+        ).order_by('-created'):
+            # Keep only the latest per VM
+            if attachment.object_id not in screenshots:
+                screenshots[attachment.object_id] = attachment
+        
+        # Build VM list with screenshot info
+        vm_list = []
+        for vm in managed_vms:
+            vm_list.append({
+                'vm': vm,
+                'instance_type': vm.custom_field_data.get('incus_type', 'container'),
+                'is_vm': vm.custom_field_data.get('incus_type', '') != 'container',
+                'screenshot': screenshots.get(vm.pk),
+            })
+        
+        context['managed_vms'] = vm_list
+        context['managed_vms_count'] = managed_vms.count()
+        
         return context
 
 
@@ -98,6 +133,128 @@ class IncusSyncEventsView(View):
         job = SyncEventsJob.enqueue()
         messages.success(request, f"Incus events synchronization started (Job #{job.pk})")
         return redirect('plugins:netbox_incus_sync:incushost_list')
+
+
+# ============================================
+# Screenshot View
+# ============================================
+
+class IncusVMScreenshotView(View):
+    """
+    Captures a VGA console screenshot from Incus and attaches it to the VM
+    as a NetBox ImageAttachment.
+    
+    Only works for virtual machines (not containers) that are running.
+    Keeps only one screenshot per VM (deletes previous ones before creating new).
+    
+    Requires Incus >= 6.7 with instance_console_screenshot API extension.
+    """
+    
+    def post(self, request, pk):
+        vm = get_object_or_404(VirtualMachine, pk=pk)
+        
+        # Find the Incus host for this VM
+        host_name = vm.custom_field_data.get('incus_host')
+        if not host_name:
+            return self._respond(
+                request, vm, False,
+                "This VM is not managed by Incus Sync (no incus_host field)."
+            )
+        
+        try:
+            host = IncusHost.objects.get(name=host_name, enabled=True)
+        except IncusHost.DoesNotExist:
+            return self._respond(
+                request, vm, False,
+                f"Incus host '{host_name}' not found or disabled."
+            )
+        
+        # Check instance type - screenshots only work for VMs
+        instance_type = vm.custom_field_data.get('incus_type', '')
+        if instance_type == 'container':
+            return self._respond(
+                request, vm, False,
+                "VGA screenshots are only available for virtual machines, not containers."
+            )
+        
+        try:
+            client = IncusClient(host=host)
+            
+            # Capture screenshot
+            screenshot_data = client.get_instance_screenshot(vm.name)
+            
+            if not screenshot_data:
+                return self._respond(
+                    request, vm, False,
+                    "Unable to capture screenshot. The VM may be stopped or the VGA console unavailable."
+                )
+            
+            vm_ct = ContentType.objects.get_for_model(VirtualMachine)
+            
+            # Delete existing Incus screenshots (keep only one)
+            old_screenshots = ImageAttachment.objects.filter(
+                object_type=vm_ct,
+                object_id=vm.pk,
+                name__startswith='incus-screenshot-'
+            )
+            old_screenshots.delete()
+            
+            # Create new screenshot attachment
+            timestamp = timezone.now().strftime('%Y%m%d-%H%M%S')
+            filename = f"incus-screenshot-{vm.name}-{timestamp}.png"
+            
+            image_file = ContentFile(screenshot_data, name=filename)
+            
+            ImageAttachment.objects.create(
+                object_type=vm_ct,
+                object_id=vm.pk,
+                image=image_file,
+                name=f"incus-screenshot-{vm.name}",
+            )
+            
+            size_kb = len(screenshot_data) // 1024
+            
+            return self._respond(
+                request, vm, True,
+                f"Screenshot captured for {vm.name} ({size_kb} KB)"
+            )
+            
+        except Exception as e:
+            return self._respond(request, vm, False, f"Error: {str(e)}", status=500)
+    
+    def _respond(self, request, vm, success, message, status=None):
+        """Helper to respond in AJAX or redirect mode."""
+        is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+        
+        if is_ajax:
+            # For AJAX, include the new screenshot URL if success
+            data = {'success': success, 'message': message}
+            
+            if success:
+                vm_ct = ContentType.objects.get_for_model(VirtualMachine)
+                screenshot = ImageAttachment.objects.filter(
+                    object_type=vm_ct,
+                    object_id=vm.pk,
+                    name__startswith='incus-screenshot-'
+                ).order_by('-created').first()
+                if screenshot:
+                    data['screenshot_url'] = screenshot.image.url
+                    data['screenshot_date'] = screenshot.created.strftime('%Y-%m-%d %H:%M:%S')
+            
+            return JsonResponse(data, status=status or (200 if success else 400))
+        
+        if success:
+            messages.success(request, message)
+        else:
+            messages.error(request, message)
+        
+        # Redirect back to the host page
+        host_name = vm.custom_field_data.get('incus_host', '')
+        try:
+            host = IncusHost.objects.get(name=host_name)
+            return redirect(host.get_absolute_url())
+        except IncusHost.DoesNotExist:
+            return redirect(vm.get_absolute_url())
 
 
 # ============================================
@@ -169,8 +326,6 @@ class IncusHostTestAllUrlsView(View):
             })
         
         try:
-            # Create a client just to use the test method
-            # We need to bypass the normal initialization to test all URLs
             urls = host.get_https_urls()
             
             if not urls:
@@ -180,7 +335,6 @@ class IncusHostTestAllUrlsView(View):
                     'data': {'urls': []},
                 })
             
-            # Test each URL individually
             results = []
             import requests
             import os
@@ -191,17 +345,14 @@ class IncusHostTestAllUrlsView(View):
                 try:
                     test_session = requests.Session()
                     
-                    # Configure certificates
                     if host.client_cert_path and host.client_key_path:
                         test_session.cert = (host.client_cert_path, host.client_key_path)
                     
-                    # Configure SSL verification
                     if host.ca_cert_path and os.path.isfile(host.ca_cert_path):
                         test_session.verify = host.ca_cert_path
                     else:
                         test_session.verify = host.verify_ssl
                     
-                    # Quick connection test
                     test_url = f"{url.rstrip('/')}/1.0"
                     response = test_session.get(test_url, timeout=5)
                     response.raise_for_status()
@@ -271,5 +422,4 @@ class IncusHostClearCacheView(View):
         return redirect('plugins:netbox_incus_sync:incushost', pk=pk)
     
     def get(self, request, pk):
-        # Allow GET for simple link-based clearing
         return self.post(request, pk)

@@ -14,6 +14,9 @@ urlpatterns = [
     path('sync/', views.IncusSyncView.as_view(), name='sync'),
     path('sync/events/', views.IncusSyncEventsView.as_view(), name='sync_events'),
     
+    # VM Screenshot
+    path('vm/<int:pk>/screenshot/', views.IncusVMScreenshotView.as_view(), name='vm_screenshot'),
+    
     # Connection utilities
     path('hosts/<int:pk>/test-connection/', views.IncusHostTestConnectionView.as_view(), name='incushost_test_connection'),
     path('hosts/<int:pk>/test-all-urls/', views.IncusHostTestAllUrlsView.as_view(), name='incushost_test_all_urls'),
