@@ -273,84 +273,118 @@
 <div class="row mb-3">
     <div class="col-md-12">
         <div class="card">
-            <h5 class="card-header">
-                <i class="mdi mdi-monitor-screenshot"></i>
-                Managed Instances
-                <span class="badge bg-secondary text-dark ms-2">{{ managed_vms_count }}</span>
+            <h5 class="card-header d-flex justify-content-between align-items-center" style="cursor: pointer;"
+                data-bs-toggle="collapse" data-bs-target="#managed-vms-panel" aria-expanded="false"
+                aria-controls="managed-vms-panel">
+                <span>
+                    <i class="mdi mdi-monitor-screenshot"></i>
+                    Managed Instances
+                    <span class="badge bg-secondary text-dark ms-2">{{ managed_vms_count }}</span>
+                </span>
+                <i class="mdi mdi-chevron-down" id="collapse-icon"></i>
             </h5>
-            <div class="card-body">
-                <div class="table-responsive">
-                    <table class="table table-hover">
-                        <thead>
-                            <tr>
-                                <th>Instance</th>
-                                <th>Type</th>
-                                <th>Status</th>
-                                <th>VGA Screenshot</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for item in managed_vms %}
-                            <tr id="vm-row-{{ item.vm.pk }}">
-                                <td>
-                                    <a href="{{ item.vm.get_absolute_url }}">{{ item.vm.name }}</a>
-                                </td>
-                                <td>
-                                    {% if item.instance_type == 'container' %}
-                                    <span class="badge bg-primary text-dark">Container</span>
-                                    {% else %}
-                                    <span class="badge bg-purple text-dark">VM</span>
-                                    {% endif %}
-                                </td>
-                                <td>
-                                    {% if item.vm.status == 'active' %}
-                                    <span class="badge bg-success text-dark">Running</span>
-                                    {% else %}
-                                    <span class="badge bg-secondary text-dark">{{ item.vm.status }}</span>
-                                    {% endif %}
-                                </td>
-                                <td id="screenshot-cell-{{ item.vm.pk }}">
-                                    {% if item.screenshot %}
-                                    <a href="{{ item.screenshot.image.url }}" target="_blank"
-                                        title="Click to view full size">
-                                        <img src="{{ item.screenshot.image.url }}" class="img-thumbnail"
-                                            style="max-height: 80px; max-width: 140px;"
-                                            alt="Screenshot {{ item.vm.name }}">
-                                    </a>
-                                    <br>
-                                    <small class="text-body-secondary">
-                                        {{ item.screenshot.created|timesince }} ago
-                                    </small>
-                                    {% elif item.is_vm %}
-                                    <span class="text-body-secondary">
-                                        <i class="mdi mdi-monitor-off"></i> No screenshot
-                                    </span>
-                                    {% else %}
-                                    <span class="text-body-secondary">
-                                        <i class="mdi mdi-minus"></i> N/A
-                                    </span>
-                                    {% endif %}
-                                </td>
-                                <td>
-                                    {% if item.is_vm %}
-                                    <button type="button" class="btn btn-sm btn-outline-primary screenshot-btn"
-                                        data-vm-pk="{{ item.vm.pk }}" data-vm-name="{{ item.vm.name }}"
-                                        data-url="{% url 'plugins:netbox_incus_sync:vm_screenshot' pk=item.vm.pk %}"
-                                        title="Capture VGA screenshot">
-                                        <i class="mdi mdi-camera"></i>
-                                        {% if item.screenshot %}Update{% else %}Capture{% endif %}
-                                    </button>
-                                    {% else %}
-                                    <span class="text-body-secondary" title="VGA screenshots only available for VMs">
-                                        <i class="mdi mdi-camera-off"></i>
-                                    </span>
-                                    {% endif %}
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
+            <div class="collapse" id="managed-vms-panel">
+                <div class="card-body">
+                    {# Search and filter bar #}
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <div class="input-group input-group-sm">
+                                <span class="input-group-text"><i class="mdi mdi-magnify"></i></span>
+                                <input type="text" class="form-control" id="vm-search" placeholder="Search instances..."
+                                    autocomplete="off">
+                            </div>
+                        </div>
+                        <div class="col-md-6 text-end">
+                            <div class="btn-group btn-group-sm" role="group" id="vm-type-filter">
+                                <button type="button" class="btn btn-outline-secondary active" data-filter="vm">
+                                    <i class="mdi mdi-desktop-tower"></i> VMs only
+                                </button>
+                                <button type="button" class="btn btn-outline-secondary" data-filter="all">
+                                    All
+                                </button>
+                            </div>
+                            <span class="ms-2 text-body-secondary" id="vm-visible-count"></span>
+                        </div>
+                    </div>
+                    {# VM table #}
+                    <div class="table-responsive">
+                        <table class="table table-hover table-sm" id="vm-table">
+                            <thead>
+                                <tr>
+                                    <th>Instance</th>
+                                    <th>Type</th>
+                                    <th>Status</th>
+                                    <th>VGA Screenshot</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for item in managed_vms %}
+                                <tr id="vm-row-{{ item.vm.pk }}" class="vm-row" data-vm-name="{{ item.vm.name|lower }}"
+                                    data-vm-type="{{ item.instance_type }}">
+                                    <td>
+                                        <a href="{{ item.vm.get_absolute_url }}">{{ item.vm.name }}</a>
+                                    </td>
+                                    <td>
+                                        {% if item.instance_type == 'container' %}
+                                        <span class="badge bg-primary text-dark">Container</span>
+                                        {% else %}
+                                        <span class="badge bg-purple text-dark">VM</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if item.vm.status == 'active' %}
+                                        <span class="badge bg-success text-dark">Running</span>
+                                        {% else %}
+                                        <span class="badge bg-secondary text-dark">{{ item.vm.status }}</span>
+                                        {% endif %}
+                                    </td>
+                                    <td id="screenshot-cell-{{ item.vm.pk }}">
+                                        {% if item.screenshot %}
+                                        <a href="{{ item.screenshot.image.url }}" target="_blank"
+                                            title="Click to view full size">
+                                            <img src="{{ item.screenshot.image.url }}" class="img-thumbnail"
+                                                style="max-height: 60px; max-width: 110px;"
+                                                alt="Screenshot {{ item.vm.name }}" loading="lazy">
+                                        </a>
+                                        <br>
+                                        <small class="text-body-secondary">
+                                            {{ item.screenshot.created|timesince }} ago
+                                        </small>
+                                        {% elif item.is_vm %}
+                                        <span class="text-body-secondary">
+                                            <i class="mdi mdi-monitor-off"></i> No screenshot
+                                        </span>
+                                        {% else %}
+                                        <span class="text-body-secondary">
+                                            <i class="mdi mdi-minus"></i> N/A
+                                        </span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if item.is_vm %}
+                                        <button type="button" class="btn btn-sm btn-outline-primary screenshot-btn"
+                                            data-vm-pk="{{ item.vm.pk }}" data-vm-name="{{ item.vm.name }}"
+                                            data-url="{% url 'plugins:netbox_incus_sync:vm_screenshot' pk=item.vm.pk %}"
+                                            title="Capture VGA screenshot">
+                                            <i class="mdi mdi-camera"></i>
+                                            {% if item.screenshot %}Update{% else %}Capture{% endif %}
+                                        </button>
+                                        {% else %}
+                                        <span class="text-body-secondary"
+                                            title="VGA screenshots only available for VMs">
+                                            <i class="mdi mdi-camera-off"></i>
+                                        </span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="text-center text-body-secondary d-none" id="vm-no-results">
+                        <i class="mdi mdi-magnify-close"></i> No matching instances
+                    </div>
                 </div>
             </div>
         </div>
@@ -421,6 +455,85 @@
         }
         return cookieValue;
     }
+
+    // ==========================================
+    // Collapse icon toggle
+    // ==========================================
+    var panelEl = document.getElementById('managed-vms-panel');
+    var collapseIcon = document.getElementById('collapse-icon');
+    if (panelEl && collapseIcon) {
+        panelEl.addEventListener('shown.bs.collapse', function () {
+            collapseIcon.classList.remove('mdi-chevron-down');
+            collapseIcon.classList.add('mdi-chevron-up');
+        });
+        panelEl.addEventListener('hidden.bs.collapse', function () {
+            collapseIcon.classList.remove('mdi-chevron-up');
+            collapseIcon.classList.add('mdi-chevron-down');
+        });
+    }
+
+    // ==========================================
+    // VM Search & Filter
+    // ==========================================
+    var currentFilter = 'vm'; // default: VMs only
+
+    function filterVMs() {
+        var searchTerm = (document.getElementById('vm-search').value || '').toLowerCase();
+        var rows = document.querySelectorAll('.vm-row');
+        var visibleCount = 0;
+
+        rows.forEach(function (row) {
+            var name = row.getAttribute('data-vm-name') || '';
+            var type = row.getAttribute('data-vm-type') || '';
+
+            var matchesSearch = !searchTerm || name.indexOf(searchTerm) !== -1;
+            var matchesFilter = currentFilter === 'all' || type !== 'container';
+
+            if (matchesSearch && matchesFilter) {
+                row.style.display = '';
+                visibleCount++;
+            } else {
+                row.style.display = 'none';
+            }
+        });
+
+        // Update visible count
+        var countEl = document.getElementById('vm-visible-count');
+        if (countEl) {
+            countEl.textContent = visibleCount + ' / {{ managed_vms_count }} shown';
+        }
+
+        // Show/hide "no results"
+        var noResults = document.getElementById('vm-no-results');
+        if (noResults) {
+            if (visibleCount === 0) {
+                noResults.classList.remove('d-none');
+            } else {
+                noResults.classList.add('d-none');
+            }
+        }
+    }
+
+    // Search input
+    var searchInput = document.getElementById('vm-search');
+    if (searchInput) {
+        searchInput.addEventListener('input', filterVMs);
+    }
+
+    // Type filter buttons
+    document.querySelectorAll('#vm-type-filter button').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            document.querySelectorAll('#vm-type-filter button').forEach(function (b) {
+                b.classList.remove('active');
+            });
+            this.classList.add('active');
+            currentFilter = this.getAttribute('data-filter');
+            filterVMs();
+        });
+    });
+
+    // Initial filter on page load (apply default "VMs only")
+    filterVMs();
 
     // ==========================================
     // Screenshot buttons
