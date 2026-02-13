@@ -119,7 +119,7 @@ class InstanceSyncService:
                 self.log('info', f"  DeviceType 'Generic Server' created")
         return self._device_type
     
-    def resolve_device(self, location, host):
+    def resolve_device(self, location, host, cluster=None):
         """
         Resolves or creates a Device for an Incus cluster node.
         
@@ -137,6 +137,10 @@ class InstanceSyncService:
         device = Device.objects.filter(name=location).first()
         
         if device:
+            if cluster and device.cluster != cluster:
+                device.cluster = cluster
+                device.save(update_fields=['cluster'])
+                self.log('info', f"  Device '{location}' assigned to cluster '{cluster.name}'")
             return device
         
         # Auto-create the Device
@@ -152,13 +156,14 @@ class InstanceSyncService:
         device = Device.objects.create(
             name=location,
             site=site,
+            cluster=cluster,
             device_type=self.generic_device_type,
             role=self.hypervisor_role,
             status='active',
             description=f"Incus cluster node (auto-created by Incus Sync from {host.name})",
         )
         
-        self.log('info', f"  Device auto-created: {location} (site: {site.name})")
+        self.log('info', f"  Device auto-created: {location} (site: {site.name}, cluster: {cluster.name if cluster else 'none'})")
         return device
     
     # ========== Instance Synchronization ==========
@@ -190,7 +195,7 @@ class InstanceSyncService:
         disk_mb = self._extract_disk(expanded_devices if expanded_devices else devices)
         
         # Resolve Device for cluster node
-        device = self.resolve_device(location, host)
+        device = self.resolve_device(location, host, cluster=cluster)
         
         defaults = {
             'status': nb_status,
