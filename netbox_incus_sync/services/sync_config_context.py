@@ -1,18 +1,25 @@
 """
 Incus configuration synchronization service to NetBox local_context_data.
 
-This service synchronizes Incus instance configurations (expanded_config, 
-expanded_devices, profiles) directly to the VM's local_context_data field,
-enabling:
-- Infrastructure-as-Code workflows (Ansible, Terraform)
-- Configuration auditing and tracking
-- Data export for external tools
-- Proper per-VM rendered context in NetBox UI
+UPDATED: Now works in tandem with ProfileSyncService.
+
+- ProfileSyncService handles profile data → NetBox ConfigContext objects (tag-based)
+- ConfigContextSyncService handles instance-specific data → VM local_context_data
+
+This means local_context_data now only contains:
+- Instance metadata (name, type, status, location, etc.)
+- Source host information
+- Instance-specific config overrides (NOT from profiles)
+- Instance-specific device overrides (NOT from profiles)
+- The list of applied profiles (for reference)
+
+The expanded_config/expanded_devices are NO LONGER stored here,
+as they are reconstructed by NetBox's Config Context merging system.
 """
 
 
 class ConfigContextSyncService:
-    """Service to synchronize Incus configurations to VM local_context_data."""
+    """Service to synchronize Incus instance-specific config to VM local_context_data."""
     
     def __init__(self, logger=None):
         self.logger = logger
@@ -23,13 +30,10 @@ class ConfigContextSyncService:
     
     def sync_instance_config_context(self, vm, instance_data, host):
         """
-        Synchronizes an Incus instance configuration to the VM's local_context_data.
+        Synchronizes an Incus instance's LOCAL configuration to the VM's local_context_data.
         
-        Stores:
-        - expanded_config: All configuration including profile inheritance
-        - expanded_devices: All devices including profile inheritance
-        - profiles: List of applied profiles
-        - instance metadata (type, status, location, etc.)
+        Only stores instance-specific overrides and metadata.
+        Profile-inherited data is handled by ProfileSyncService via ConfigContext objects.
         
         Args:
             vm: VirtualMachine instance
@@ -39,7 +43,7 @@ class ConfigContextSyncService:
         Returns:
             tuple: (updated: bool, created: bool)
         """
-        # Build the context data structure
+        # Build the context data structure (instance-specific only)
         context_data = self._build_context_data(instance_data, host)
         
         # Check if data changed
@@ -50,7 +54,7 @@ class ConfigContextSyncService:
         # Determine if this is a create or update
         created = 'incus' not in old_data
         
-        # Compare relevant fields (skip last_used_at as it changes frequently)
+        # Compare relevant fields (skip volatile ones)
         def normalize_for_compare(data):
             """Remove volatile fields for comparison."""
             if not data:
@@ -95,9 +99,7 @@ class ConfigContextSyncService:
         Returns:
             dict: Structured configuration data
         """
-        # Extract configurations
-        expanded_config = instance_data.get('expanded_config', {})
-        expanded_devices = instance_data.get('expanded_devices', {})
+        # Instance-specific config and devices (NOT expanded)
         config = instance_data.get('config', {})
         devices = instance_data.get('devices', {})
         profiles = instance_data.get('profiles', [])
@@ -124,30 +126,16 @@ class ConfigContextSyncService:
                     'connection_type': host.connection_type,
                 },
                 
-                # Applied profiles (order matters!)
+                # Applied profiles (order matters! — for reference)
                 'profiles': profiles,
                 
-                # Resource limits (extracted for easy access)
-                'limits': self._extract_limits(expanded_config),
-                
-                # Full expanded configuration (includes profile inheritance)
-                'expanded_config': self._sanitize_config(expanded_config),
-                
-                # Full expanded devices (includes profile inheritance)
-                'expanded_devices': self._sanitize_devices(expanded_devices),
-                
-                # Instance-specific overrides only (not from profiles)
+                # Instance-specific overrides only (NOT from profiles)
                 'instance_config': self._sanitize_config(config),
                 'instance_devices': self._sanitize_devices(devices),
                 
-                # Security settings (extracted for easy access)
-                'security': self._extract_security(expanded_config),
-                
-                # Network configuration summary
-                'network': self._extract_network_summary(expanded_devices),
-                
-                # Storage configuration summary  
-                'storage': self._extract_storage_summary(expanded_devices),
+                # Extracted summaries from instance-specific overrides
+                'instance_limits': self._extract_limits(config),
+                'instance_security': self._extract_security(config),
             }
         }
         
@@ -160,104 +148,38 @@ class ConfigContextSyncService:
         """Extracts resource limits from config."""
         limits = {}
         
-        # CPU
-        cpu = config.get('limits.cpu')
-        if cpu:
-            limits['cpu'] = cpu
+        if config.get('limits.cpu'):
+            limits['cpu'] = config['limits.cpu']
+        if config.get('limits.memory'):
+            limits['memory'] = config['limits.memory']
         
-        # Memory
-        memory = config.get('limits.memory')
-        if memory:
-            limits['memory'] = memory
-        
-        # Disk I/O
-        for key in ['limits.disk.priority', 'limits.disk.read', 'limits.disk.write']:
+        for key in ['limits.disk.priority', 'limits.disk.read', 'limits.disk.write',
+                     'limits.network.priority', 'limits.network.egress', 'limits.network.ingress',
+                     'limits.processes']:
             if key in config:
                 limits[key.replace('limits.', '')] = config[key]
-        
-        # Network I/O
-        for key in ['limits.network.priority', 'limits.network.egress', 'limits.network.ingress']:
-            if key in config:
-                limits[key.replace('limits.', '')] = config[key]
-        
-        # Process limits
-        if 'limits.processes' in config:
-            limits['processes'] = config['limits.processes']
         
         return limits if limits else None
     
     def _extract_security(self, config):
         """Extracts security-related settings from config."""
         security = {}
-        
         security_keys = [
-            'security.nesting',
-            'security.privileged', 
-            'security.protection.delete',
-            'security.protection.shift',
-            'security.idmap.isolated',
-            'security.secureboot',
-            'security.devlxd',
-            'security.devlxd.images',
+            'security.nesting', 'security.privileged',
+            'security.protection.delete', 'security.protection.shift',
+            'security.idmap.isolated', 'security.secureboot',
+            'security.devlxd', 'security.devlxd.images',
         ]
         
         for key in security_keys:
             if key in config:
-                # Convert to proper key name and boolean if applicable
                 short_key = key.replace('security.', '')
                 value = config[key]
-                
-                # Convert string booleans
                 if value in ('true', 'false'):
                     value = value == 'true'
-                
                 security[short_key] = value
         
         return security if security else None
-    
-    def _extract_network_summary(self, devices):
-        """Extracts network device summary."""
-        networks = []
-        
-        for name, device in devices.items():
-            if device.get('type') != 'nic':
-                continue
-            
-            net_info = {
-                'name': name,
-                'type': device.get('nictype', device.get('type', '')),
-            }
-            
-            # Add relevant network properties
-            for key in ['network', 'parent', 'hwaddr', 'host_name', 'mtu', 'vlan']:
-                if key in device:
-                    net_info[key] = device[key]
-            
-            networks.append(net_info)
-        
-        return networks if networks else None
-    
-    def _extract_storage_summary(self, devices):
-        """Extracts storage device summary."""
-        storage = []
-        
-        for name, device in devices.items():
-            if device.get('type') != 'disk':
-                continue
-            
-            disk_info = {
-                'name': name,
-                'path': device.get('path', ''),
-            }
-            
-            # Add relevant disk properties
-            for key in ['pool', 'source', 'size', 'readonly', 'shift']:
-                if key in device:
-                    disk_info[key] = device[key]
-            
-            storage.append(disk_info)
-        
-        return storage if storage else None
     
     def _sanitize_config(self, config):
         """
@@ -274,7 +196,6 @@ class ConfigContextSyncService:
         
         sanitized = {}
         
-        # Keys to exclude (sensitive or too volatile)
         exclude_prefixes = [
             'volatile.',      # Volatile runtime data (UUIDs, IPs, etc.)
             'image.',         # Already captured elsewhere
@@ -287,14 +208,10 @@ class ConfigContextSyncService:
         ]
         
         for key, value in config.items():
-            # Skip excluded prefixes
             if any(key.startswith(prefix) for prefix in exclude_prefixes):
                 continue
-            
-            # Skip exact matches
             if key in exclude_exact:
                 continue
-            
             sanitized[key] = value
         
         return sanitized
@@ -315,16 +232,12 @@ class ConfigContextSyncService:
         sanitized = {}
         
         for name, device in devices.items():
-            # Copy device config, excluding sensitive fields
             sanitized_device = {}
             
             for key, value in device.items():
-                # Skip sensitive fields
                 if key in ['source'] and device.get('type') == 'disk':
-                    # Keep source for disks as it's useful info
                     sanitized_device[key] = value
                 elif key.startswith('user.'):
-                    # Skip user-defined sensitive data
                     continue
                 else:
                     sanitized_device[key] = value

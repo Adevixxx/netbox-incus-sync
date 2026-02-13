@@ -390,6 +390,26 @@ class IncusClient:
             return data.get('metadata', [])
         return []
 
+    def get_profiles(self, recursion=1):
+        """Retrieves the list of Incus profiles with their configuration."""
+        try:
+            data = self._request('GET', f'/1.0/profiles?recursion={recursion}')
+            if data.get('type') == 'sync':
+                return data.get('metadata', [])
+        except Exception as e:
+            logger.error(f"Unable to retrieve profiles: {e}")
+        return []
+
+    def get_profile(self, name):
+        """Retrieves details of a specific profile."""
+        try:
+            data = self._request('GET', f'/1.0/profiles/{name}')
+            if data.get('type') == 'sync':
+                return data.get('metadata')
+        except Exception as e:
+            logger.debug(f"Profile {name} not found: {e}")
+        return None
+
     def get_storage_pools(self):
         """Retrieves the list of storage pools."""
         data = self._request('GET', '/1.0/storage-pools?recursion=1')

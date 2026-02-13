@@ -15,6 +15,7 @@ from .services import (
     DiskSyncService, 
     EventSyncService,
     ConfigContextSyncService,
+    ProfileSyncService,
     IpamSyncService,
 )
 from .custom_fields import ensure_custom_fields_exist
@@ -26,13 +27,14 @@ class SyncIncusJob(JobRunner):
     
     Synchronizes:
     - Incus managed networks to NetBox Prefixes and VLANs
+    - Incus profiles to NetBox Config Contexts (tag-based stacking)
     - Instances (VMs/containers) to VirtualMachine
     - NetBox Cluster (automatically created if Incus is in cluster mode)
     - Network Interfaces (with VLAN assignment)
     - IP Addresses (with Prefix/VRF linkage)
     - Virtual Disks
     - Instance logs (QEMU logs to Journal Entries)
-    - Config Contexts (Incus configuration data)
+    - Config Contexts (instance-specific overrides to local_context_data)
     """
     
     class Meta:
@@ -57,6 +59,7 @@ class SyncIncusJob(JobRunner):
         disk_service = DiskSyncService(logger=self.logger)
         event_service = EventSyncService(logger=self.logger)
         config_context_service = ConfigContextSyncService(logger=self.logger)
+        profile_service = ProfileSyncService(logger=self.logger)
         ipam_service = IpamSyncService(logger=self.logger)
         
         # Prepare tags
@@ -73,6 +76,10 @@ class SyncIncusJob(JobRunner):
             'logs_synced': 0,
             'config_contexts_created': 0,
             'config_contexts_updated': 0,
+            'profiles_synced': 0,
+            'profiles_created': 0,
+            'profiles_updated': 0,
+            'profiles_removed': 0,
             'prefixes_created': 0,
             'prefixes_updated': 0,
             'vlans_created': 0,
@@ -87,6 +94,7 @@ class SyncIncusJob(JobRunner):
                 disk_service, 
                 event_service,
                 config_context_service,
+                profile_service,
                 ipam_service,
                 stats
             )
@@ -97,13 +105,15 @@ class SyncIncusJob(JobRunner):
             f"Instances: +{stats['instances_created']} ~{stats['instances_updated']} -{stats['instances_removed']} | "
             f"Interfaces: {stats['interfaces_synced']} | IPs: {stats['ips_synced']} | "
             f"Disks: {stats['disks_synced']} | Logs: {stats['logs_synced']} | "
+            f"Profiles: +{stats['profiles_created']} ~{stats['profiles_updated']} -{stats['profiles_removed']} | "
             f"Contexts: +{stats['config_contexts_created']} ~{stats['config_contexts_updated']} | "
             f"Prefixes: +{stats['prefixes_created']} ~{stats['prefixes_updated']} | "
             f"VLANs: +{stats['vlans_created']}"
         )
 
     def _process_host(self, host, instance_service, network_service, disk_service, 
-                      event_service, config_context_service, ipam_service, stats):
+                      event_service, config_context_service, profile_service, 
+                      ipam_service, stats):
         """
         Processes an Incus host.
         """
@@ -139,6 +149,19 @@ class SyncIncusJob(JobRunner):
             stats['prefixes_created'] += net_stats['prefixes_created']
             stats['prefixes_updated'] += net_stats['prefixes_updated']
             stats['vlans_created'] += net_stats['vlans_created']
+            
+            # ====================================================
+            # Phase 0.5: Sync Incus profiles → NetBox Config Contexts
+            # This MUST run before instance sync so that Config
+            # Contexts and their tags exist when we assign profile
+            # tags to VMs.
+            # ====================================================
+            profiles = client.get_profiles(recursion=1)
+            profile_stats = profile_service.sync_profiles(profiles, host)
+            stats['profiles_synced'] += profile_stats['profiles_synced']
+            stats['profiles_created'] += profile_stats['profiles_created']
+            stats['profiles_updated'] += profile_stats['profiles_updated']
+            stats['profiles_removed'] += profile_stats['profiles_removed']
             
             # ====================================================
             # Phase 1: Instance sync
@@ -199,14 +222,22 @@ class SyncIncusJob(JobRunner):
                     )
                     stats['disks_synced'] += disk_count
                     
-                    # Config Context Sync (to local_context_data)
-                    updated, cc_created = config_context_service.sync_instance_config_context(
+                    # Config Context Sync (instance-specific overrides to local_context_data)
+                    cc_updated, cc_created = config_context_service.sync_instance_config_context(
                         vm, instance_data, host
                     )
                     if cc_created:
                         stats['config_contexts_created'] += 1
-                    elif updated:
+                    elif cc_updated:
                         stats['config_contexts_updated'] += 1
+                    
+                    # ====================================================
+                    # Phase 3: Assign profile tags to VM
+                    # This links the VM to the Config Contexts created
+                    # in Phase 0.5 via NetBox's tag-based association.
+                    # ====================================================
+                    instance_profiles = instance_data.get('profiles', [])
+                    profile_service.assign_profile_tags_to_vm(vm, instance_profiles)
             
             # Handle deletions (using UUIDs)
             deleted = instance_service.handle_deletions(cluster, host, incus_instance_uuids)
@@ -233,121 +264,88 @@ class SyncIncusJob(JobRunner):
         from ipam.models import IPAddress
         from django.contrib.contenttypes.models import ContentType
         
-        vminterface_ct = ContentType.objects.get_for_model(VMInterface)
+        vm_iface_ct = ContentType.objects.get_for_model(VMInterface)
         
-        for dev_name, dev_config in devices.items():
-            if dev_config.get('type') != 'nic':
-                continue
+        # Assign VLANs to interfaces
+        for iface in VMInterface.objects.filter(virtual_machine=vm):
+            # Find the matching device config
+            device_name = iface.custom_field_data.get('incus_device_name', iface.name)
+            device_config = devices.get(device_name, {})
             
-            interface = VMInterface.objects.filter(
-                virtual_machine=vm,
-                name=dev_name,
-            ).first()
-            
-            if not interface:
-                network_name = dev_config.get('network', '') or dev_config.get('parent', '')
-                if network_name:
-                    interface = VMInterface.objects.filter(
-                        virtual_machine=vm,
-                        custom_field_data__incus_bridge=network_name,
-                    ).first()
-            
-            if not interface:
-                continue
-            
-            # Assign VLAN to interface
-            vlan_assigned = ipam_service.assign_vlan_to_interface(
-                interface, dev_config, host
-            )
-            if vlan_assigned:
-                stats['vlans_created'] += 0  # Already counted in sync_networks
-            
-            # Link IPs on this interface to their Prefix/VRF
-            ips = IPAddress.objects.filter(
-                assigned_object_type=vminterface_ct,
-                assigned_object_id=interface.pk,
-            )
-            for ip_obj in ips:
-                ipam_service.link_ip_to_prefix(ip_obj)
-
-    def _get_cluster_info(self, client):
-        """
-        Retrieves Incus cluster information.
+            if device_config:
+                ipam_service.assign_vlan_to_interface(iface, device_config, host)
         
-        Returns:
-            dict: {'enabled': bool, 'server_name': str, 'member_count': int} or None
-        """
-        try:
-            cluster_data = client.get_cluster()
-            if cluster_data and cluster_data.get('enabled'):
-                # Count members if possible
-                members = client.get_cluster_members()
-                member_count = len(members) if members else 0
-                
-                self.logger.info(f"  Incus cluster mode enabled: {cluster_data.get('server_name')} ({member_count} members)")
-                
-                return {
-                    'enabled': True,
-                    'server_name': cluster_data.get('server_name', ''),
-                    'member_count': member_count,
-                }
-            else:
-                self.logger.info(f"  Standalone mode (no Incus cluster)")
-                return {'enabled': False}
-        except Exception as e:
-            self.logger.debug(f"  Unable to retrieve cluster info: {e}")
-            return None
-
+        # Link IPs to Prefixes/VRFs
+        for ip in IPAddress.objects.filter(
+            assigned_object_type=vm_iface_ct,
+            assigned_object_id__in=VMInterface.objects.filter(
+                virtual_machine=vm
+            ).values_list('pk', flat=True)
+        ):
+            ipam_service.link_ip_to_prefix(ip)
+    
     def _log_server_info(self, client):
         """Logs Incus server information."""
         try:
             server_info = client.get_server_info()
             if server_info:
                 env = server_info.get('environment', {})
-                self.logger.info(f"  Server: {env.get('server_name', 'N/A')}")
-                self.logger.info(f"  Version: {env.get('server_version', 'N/A')}")
-        except Exception as e:
-            self.logger.warning(f"  Unable to retrieve server info: {e}")
+                self.logger.info(
+                    f"  Server: {env.get('server_name', 'unknown')} "
+                    f"v{env.get('server_version', '?')} "
+                    f"({env.get('kernel', 'unknown')} {env.get('kernel_version', '')})"
+                )
+        except Exception:
+            pass
+    
+    def _get_cluster_info(self, client):
+        """Retrieves Incus cluster info (or None if not clustered)."""
+        try:
+            cluster = client.get_cluster()
+            if cluster and cluster.get('enabled'):
+                members = client.get_cluster_members()
+                return {
+                    'enabled': True,
+                    'server_name': cluster.get('server_name', ''),
+                    'members': members,
+                }
+        except Exception:
+            pass
+        return None
 
 
 class SyncEventsJob(JobRunner):
     """
-    Job dedicated to Incus instance logs synchronization.
-    
-    Fetches QEMU log files from VM instances and stores them
-    as Journal Entries in NetBox.
+    Job to synchronize only Incus instance logs (lighter sync).
     """
     
     class Meta:
         name = "Incus Logs Synchronization"
-
+    
     def run(self, *args, **kwargs):
-        self.logger.info(f"Synchronizing Incus instance logs...")
+        self.logger.info("Starting Incus logs synchronization...")
         
         hosts = IncusHost.objects.filter(enabled=True)
-        
         if not hosts.exists():
             self.logger.warning("No Incus host configured or enabled.")
             return
-
+        
         event_service = EventSyncService(logger=self.logger)
         total_logs = 0
         
         for host in hosts:
-            self.logger.info(f"  Host: {host.name}")
-            
+            self.logger.info(f"Processing host: {host.name}")
             try:
                 client = IncusClient(host=host)
-                
                 success, message, _ = client.test_connection()
                 if not success:
-                    self.logger.error(f"    Connection failure: {message}")
+                    self.logger.error(f"  Connection failure: {message}")
                     continue
                 
                 logs_count = event_service.sync_events(host, client)
                 total_logs += logs_count
                 
             except Exception as e:
-                self.logger.error(f"    Error: {e}")
+                self.logger.error(f"Error processing {host.name}: {e}")
         
-        self.logger.info(f"Finished. {total_logs} log entries synchronized.")
+        self.logger.info(f"Logs synchronization finished. {total_logs} log entries synced.")
