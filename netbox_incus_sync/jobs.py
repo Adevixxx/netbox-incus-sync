@@ -15,6 +15,7 @@ from .services import (
     DiskSyncService, 
     EventSyncService,
     ConfigContextSyncService,
+    IpamSyncService,
 )
 from .custom_fields import ensure_custom_fields_exist
 
@@ -24,10 +25,11 @@ class SyncIncusJob(JobRunner):
     Job to synchronize Incus instances to NetBox.
     
     Synchronizes:
+    - Incus managed networks to NetBox Prefixes and VLANs
     - Instances (VMs/containers) to VirtualMachine
     - NetBox Cluster (automatically created if Incus is in cluster mode)
-    - Network Interfaces
-    - IP Addresses
+    - Network Interfaces (with VLAN assignment)
+    - IP Addresses (with Prefix/VRF linkage)
     - Virtual Disks
     - Instance logs (QEMU logs to Journal Entries)
     - Config Contexts (Incus configuration data)
@@ -55,6 +57,7 @@ class SyncIncusJob(JobRunner):
         disk_service = DiskSyncService(logger=self.logger)
         event_service = EventSyncService(logger=self.logger)
         config_context_service = ConfigContextSyncService(logger=self.logger)
+        ipam_service = IpamSyncService(logger=self.logger)
         
         # Prepare tags
         instance_service.setup()
@@ -70,6 +73,9 @@ class SyncIncusJob(JobRunner):
             'logs_synced': 0,
             'config_contexts_created': 0,
             'config_contexts_updated': 0,
+            'prefixes_created': 0,
+            'prefixes_updated': 0,
+            'vlans_created': 0,
         }
         
         # Process each host
@@ -81,6 +87,7 @@ class SyncIncusJob(JobRunner):
                 disk_service, 
                 event_service,
                 config_context_service,
+                ipam_service,
                 stats
             )
 
@@ -90,11 +97,13 @@ class SyncIncusJob(JobRunner):
             f"Instances: +{stats['instances_created']} ~{stats['instances_updated']} -{stats['instances_removed']} | "
             f"Interfaces: {stats['interfaces_synced']} | IPs: {stats['ips_synced']} | "
             f"Disks: {stats['disks_synced']} | Logs: {stats['logs_synced']} | "
-            f"Contexts: +{stats['config_contexts_created']} ~{stats['config_contexts_updated']}"
+            f"Contexts: +{stats['config_contexts_created']} ~{stats['config_contexts_updated']} | "
+            f"Prefixes: +{stats['prefixes_created']} ~{stats['prefixes_updated']} | "
+            f"VLANs: +{stats['vlans_created']}"
         )
 
     def _process_host(self, host, instance_service, network_service, disk_service, 
-                      event_service, config_context_service, stats):
+                      event_service, config_context_service, ipam_service, stats):
         """
         Processes an Incus host.
         """
@@ -118,13 +127,26 @@ class SyncIncusJob(JobRunner):
             # Retrieve Incus cluster info
             cluster_info = self._get_cluster_info(client)
             
-            # Retrieve instances with recursion=2 to get expanded_config and state
+            # ====================================================
+            # Phase 0: Sync Incus managed networks → Prefixes/VLANs
+            # This MUST run before instance sync so that Prefixes
+            # and VLANs exist when we assign them to interfaces.
+            # ====================================================
+            networks = client.get_networks()
+            network_service.log_networks_info(networks)
+            
+            net_stats = ipam_service.sync_networks(networks, host)
+            stats['prefixes_created'] += net_stats['prefixes_created']
+            stats['prefixes_updated'] += net_stats['prefixes_updated']
+            stats['vlans_created'] += net_stats['vlans_created']
+            
+            # ====================================================
+            # Phase 1: Instance sync
+            # ====================================================
             instances = client.get_instances(recursion=2)
             self.logger.info(f"  > {len(instances)} instances found.")
             
             # Resolve NetBox Cluster
-            # - If Incus is in cluster mode -> create/use a NetBox Cluster
-            # - Else -> use default_cluster or None
             cluster = instance_service.resolve_cluster(host, cluster_info)
             
             if cluster:
@@ -155,13 +177,21 @@ class SyncIncusJob(JobRunner):
                 elif updated:
                     stats['instances_updated'] += 1
                 
-                # Network Sync
+                # Network Sync (interfaces + IPs)
                 if vm:
                     iface_count, ip_count = network_service.sync_instance_network(
                         vm, instance_data, client
                     )
                     stats['interfaces_synced'] += iface_count
                     stats['ips_synced'] += ip_count
+                    
+                    # ====================================================
+                    # Phase 2: VLAN assignment to interfaces + IP→Prefix linkage
+                    # ====================================================
+                    devices = instance_data.get('expanded_devices') or instance_data.get('devices', {})
+                    self._sync_interface_vlans_and_ips(
+                        vm, devices, host, ipam_service, stats
+                    )
                     
                     # Disks Sync
                     disk_count = disk_service.sync_instance_disks(
@@ -186,15 +216,59 @@ class SyncIncusJob(JobRunner):
             self.logger.info(f"  Synchronizing instance logs...")
             logs_count = event_service.sync_events(host, client)
             stats['logs_synced'] += logs_count
-            
-            # Log Incus networks (informative)
-            networks = client.get_networks()
-            network_service.log_networks_info(networks)
                 
         except Exception as e:
             self.logger.error(f"Error processing {host.name}: {e}")
             import traceback
             self.logger.error(traceback.format_exc())
+    
+    def _sync_interface_vlans_and_ips(self, vm, devices, host, ipam_service, stats):
+        """
+        Post-sync step: assign VLANs to VM interfaces and link IPs to Prefixes/VRFs.
+        
+        This runs after NetworkSyncService has created the interfaces and IPs,
+        so we can now enrich them with VLAN and VRF data.
+        """
+        from virtualization.models import VMInterface
+        from ipam.models import IPAddress
+        from django.contrib.contenttypes.models import ContentType
+        
+        vminterface_ct = ContentType.objects.get_for_model(VMInterface)
+        
+        for dev_name, dev_config in devices.items():
+            if dev_config.get('type') != 'nic':
+                continue
+            
+            interface = VMInterface.objects.filter(
+                virtual_machine=vm,
+                name=dev_name,
+            ).first()
+            
+            if not interface:
+                network_name = dev_config.get('network', '') or dev_config.get('parent', '')
+                if network_name:
+                    interface = VMInterface.objects.filter(
+                        virtual_machine=vm,
+                        custom_field_data__incus_bridge=network_name,
+                    ).first()
+            
+            if not interface:
+                continue
+            
+            # Assign VLAN to interface
+            vlan_assigned = ipam_service.assign_vlan_to_interface(
+                interface, dev_config, host
+            )
+            if vlan_assigned:
+                stats['vlans_created'] += 0  # Already counted in sync_networks
+            
+            # Link IPs on this interface to their Prefix/VRF
+            ips = IPAddress.objects.filter(
+                assigned_object_type=vminterface_ct,
+                assigned_object_id=interface.pk,
+            )
+            for ip_obj in ips:
+                ipam_service.link_ip_to_prefix(ip_obj)
 
     def _get_cluster_info(self, client):
         """

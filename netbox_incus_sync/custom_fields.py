@@ -216,6 +216,18 @@ CUSTOM_FIELDS = [
         'is_cloneable': False,
         'group_name': 'Incus',
     },
+    # ========== Custom Fields for VMInterface (Incus Networks) ==========
+    {
+        'name': 'incus_device_name',
+        'label': 'Incus Device Name',
+        'type': CustomFieldTypeChoices.TYPE_TEXT,
+        'description': 'Incus device name (e.g. "lan", "mgmt") — may differ from guest interface name (eth0)',
+        'object_types': ['virtualization.vminterface'],
+        'ui_visible': CustomFieldUIVisibleChoices.IF_SET,
+        'ui_editable': CustomFieldUIEditableChoices.HIDDEN,
+        'is_cloneable': False,
+        'group_name': 'Incus',
+    },
 ]
 
 
