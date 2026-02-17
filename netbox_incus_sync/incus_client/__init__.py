@@ -9,12 +9,8 @@ The client is split into domain-specific modules for maintainability:
 - storage.py    — Storage pools, volumes, volume state
 - network.py    — Managed networks
 - profiles.py   — Profiles
+- projects.py   — Projects (namespace isolation)
 - operations.py — Async operations
-
-The IncusClient class composes all mixins and is the single entry point
-used by the rest of the plugin. Import paths are unchanged:
-
-    from .incus_client import IncusClient   # still works
 """
 
 from .base import IncusClientBase
@@ -24,6 +20,7 @@ from .cluster import ClusterApiMixin
 from .storage import StorageApiMixin
 from .network import NetworkApiMixin
 from .profiles import ProfilesApiMixin
+from .projects import ProjectsApiMixin
 from .operations import OperationsApiMixin
 
 
@@ -34,6 +31,7 @@ class IncusClient(
     StorageApiMixin,
     NetworkApiMixin,
     ProfilesApiMixin,
+    ProjectsApiMixin,
     OperationsApiMixin,
     IncusClientBase,
 ):
@@ -43,14 +41,6 @@ class IncusClient(
     Composes all API domain mixins on top of the base transport layer.
     MRO ensures mixin methods can call self._request() and access
     self.base_url / self.session from IncusClientBase.
-    
-    Usage::
-    
-        from netbox_incus_sync.incus_client import IncusClient
-        
-        client = IncusClient(host=my_host)
-        instances = client.get_instances(recursion=2)
-        cluster = client.get_cluster()
     """
     pass
 

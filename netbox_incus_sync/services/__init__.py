@@ -6,6 +6,7 @@ from .sync_events import EventSyncService
 from .sync_config_context import ConfigContextSyncService
 from .sync_profiles import ProfileSyncService
 from .sync_ipam import IpamSyncService
+from .sync_tenants import TenantSyncService
 from .sync_utils import parse_memory, parse_size
 
 __all__ = [
@@ -16,6 +17,7 @@ __all__ = [
     'ConfigContextSyncService',
     'ProfileSyncService',
     'IpamSyncService',
+    'TenantSyncService',
     'parse_memory',
     'parse_size',
 ]

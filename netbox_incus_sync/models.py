@@ -159,6 +159,12 @@ class IncusHost(NetBoxModel):
         help_text="Site assigned to auto-created Devices for cluster nodes"
     )
 
+    sync_projects = models.JSONField(
+        default=list, blank=True,
+        verbose_name='Projects to Sync',
+        help_text='Projects to sync (empty = all). Example: ["default", "prod"]',
+    )
+
     class Meta:
         ordering = ('name',)
         verbose_name = 'Incus Host'

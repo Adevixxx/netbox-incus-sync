@@ -168,7 +168,7 @@ class InstanceSyncService:
     
     # ========== Instance Synchronization ==========
     
-    def sync_instance(self, data, cluster, host):
+    def sync_instance(self, data, cluster, host, tenant=None, project=None):
         """Synchronizes an Incus instance to NetBox."""
         vm_name = data.get('name')
         status_raw = data.get('status')
@@ -202,6 +202,7 @@ class InstanceSyncService:
             'vcpus': vcpus,
             'cluster': cluster,
             'device': device,
+            'tenant': tenant,       # Project → Tenant mapping
         }
         
         if memory_mb:
@@ -221,6 +222,7 @@ class InstanceSyncService:
                 self.log('info', f"  Rename detected: {old_name} -> {vm_name}")
             
             existing_vm.name = vm_name
+            existing_vm.tenant = tenant   # Update tenant on existing VMs
             for key, value in defaults.items():
                 setattr(existing_vm, key, value)
             existing_vm.save()
@@ -236,6 +238,9 @@ class InstanceSyncService:
             vm.serial = incus_uuid
             vm.save(update_fields=['serial'])
         
+        # Inject project name for custom field tracking
+        data['_incus_project'] = project or 'default'
+        
         self._update_vm_custom_fields(vm, data, host)
         self._apply_tags(vm, instance_type)
         
@@ -247,14 +252,15 @@ class InstanceSyncService:
             action = "Updated"
         
         type_label = "container" if instance_type == 'container' else "VM"
-        cluster_info = f" in {cluster.name}" if cluster else " (no cluster)"
+        cluster_info_str = f" in {cluster.name}" if cluster else " (no cluster)"
         location_info = f" on {location}" if location else ""
         device_info = f" [device: {device.name}]" if device else ""
+        tenant_info = f" [tenant: {tenant.name}]" if tenant else ""
+        project_info = f" [project: {project}]" if project and project != 'default' else ""
         
-        # Log resource info for debugging
         mem_str = f"{memory_mb}MB" if memory_mb else "N/A"
         cpu_str = f"{vcpus}" if vcpus else "N/A"
-        self.log('info', f"  {action}: {vm_name} ({type_label}, vCPU={cpu_str}, RAM={mem_str}){cluster_info}{location_info}{device_info}")
+        self.log('info', f"  {action}: {vm_name} ({type_label}, vCPU={cpu_str}, RAM={mem_str}){cluster_info_str}{location_info}{device_info}{tenant_info}{project_info}")
         
         return vm, created, not created
     
@@ -321,6 +327,12 @@ class InstanceSyncService:
                 updated = True
         elif 'incus_profiles' in vm.custom_field_data:
             del vm.custom_field_data['incus_profiles']
+            updated = True
+        
+        # Store Incus project name
+        incus_project = data.get('_incus_project', 'default')
+        if vm.custom_field_data.get('incus_project') != incus_project:
+            vm.custom_field_data['incus_project'] = incus_project
             updated = True
         
         # Clean up legacy custom fields that are now native fields

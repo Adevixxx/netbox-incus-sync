@@ -228,6 +228,18 @@ CUSTOM_FIELDS = [
         'is_cloneable': False,
         'group_name': 'Incus',
     },
+    # ========== Custom Field for Project tracking on VirtualMachine ==========
+    {
+        'name': 'incus_project',
+        'label': 'Incus Project',
+        'type': CustomFieldTypeChoices.TYPE_TEXT,
+        'description': 'Incus project this instance belongs to',
+        'object_types': ['virtualization.virtualmachine'],
+        'ui_visible': CustomFieldUIVisibleChoices.ALWAYS,
+        'ui_editable': CustomFieldUIEditableChoices.HIDDEN,
+        'is_cloneable': False,
+        'group_name': 'Incus',
+    },
 ]
 
 

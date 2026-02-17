@@ -91,6 +91,30 @@ class IncusClientBase:
             # Fallback to default socket
             self._setup_unix_socket('http+unix://%2Fvar%2Flib%2Fincus%2Funix.socket')
 
+    # ========== Query Helpers ==========
+
+    def _build_project_query(self, base_params='', project=None):
+        """
+        Builds query string, appending ?project= when needed.
+
+        The Incus API uses ``?project=<name>`` to scope requests to
+        a specific project.  The ``default`` project is implicit and
+        does not need the parameter.
+
+        Args:
+            base_params: Existing query params (e.g. 'recursion=2')
+            project: Incus project name (None or 'default' → skip)
+
+        Returns:
+            str: Query string starting with '?' or empty string
+        """
+        parts = []
+        if base_params:
+            parts.append(base_params)
+        if project and project != 'default':
+            parts.append(f'project={project}')
+        return '?' + '&'.join(parts) if parts else ''
+
     # ========== Connection Setup ==========
 
     def _setup_unix_socket(self, socket_url):

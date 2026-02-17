@@ -17,6 +17,7 @@ from .services import (
     ConfigContextSyncService,
     ProfileSyncService,
     IpamSyncService,
+    TenantSyncService,
 )
 from .custom_fields import ensure_custom_fields_exist
 
@@ -26,9 +27,10 @@ class SyncIncusJob(JobRunner):
     Job to synchronize Incus instances to NetBox.
     
     Synchronizes:
+    - Incus projects to NetBox Tenants
     - Incus managed networks to NetBox Prefixes and VLANs
     - Incus profiles to NetBox Config Contexts (tag-based stacking)
-    - Instances (VMs/containers) to VirtualMachine
+    - Instances (VMs/containers) to VirtualMachine (with Tenant assignment)
     - NetBox Cluster (automatically created if Incus is in cluster mode)
     - Network Interfaces (with VLAN assignment)
     - IP Addresses (with Prefix/VRF linkage)
@@ -61,6 +63,7 @@ class SyncIncusJob(JobRunner):
         config_context_service = ConfigContextSyncService(logger=self.logger)
         profile_service = ProfileSyncService(logger=self.logger)
         ipam_service = IpamSyncService(logger=self.logger)
+        tenant_service = TenantSyncService(logger=self.logger)
         
         # Prepare tags
         instance_service.setup()
@@ -83,6 +86,9 @@ class SyncIncusJob(JobRunner):
             'prefixes_created': 0,
             'prefixes_updated': 0,
             'vlans_created': 0,
+            'tenants_created': 0,
+            'tenants_removed': 0,
+            'projects_synced': 0,
         }
         
         # Process each host
@@ -96,12 +102,15 @@ class SyncIncusJob(JobRunner):
                 config_context_service,
                 profile_service,
                 ipam_service,
+                tenant_service,
                 stats
             )
 
         # Summary
         self.logger.info(
             f"Synchronization finished. "
+            f"Projects: {stats['projects_synced']} | "
+            f"Tenants: +{stats['tenants_created']} -{stats['tenants_removed']} | "
             f"Instances: +{stats['instances_created']} ~{stats['instances_updated']} -{stats['instances_removed']} | "
             f"Interfaces: {stats['interfaces_synced']} | IPs: {stats['ips_synced']} | "
             f"Disks: {stats['disks_synced']} | Logs: {stats['logs_synced']} | "
@@ -113,9 +122,20 @@ class SyncIncusJob(JobRunner):
 
     def _process_host(self, host, instance_service, network_service, disk_service, 
                       event_service, config_context_service, profile_service, 
-                      ipam_service, stats):
+                      ipam_service, tenant_service, stats):
         """
         Processes an Incus host.
+        
+        Flow:
+        1. Connect and gather server/cluster info
+        2. Sync projects → Tenants (builds tenant_map)
+        3. For each project:
+           a. Sync networks (if features.networks=true for that project, else skip)
+           b. Sync profiles (if features.profiles=true for that project, else skip)
+           c. Sync instances (with tenant assignment)
+           d. Sync disks, interfaces, IPs, config contexts per instance
+        4. Handle deletions
+        5. Sync logs
         """
         self.logger.info(f"Processing host: {host.name} ({host.get_connection_type_display()})")
         
@@ -138,36 +158,27 @@ class SyncIncusJob(JobRunner):
             cluster_info = self._get_cluster_info(client)
             
             # ====================================================
-            # Phase 0: Sync Incus managed networks → Prefixes/VLANs
-            # This MUST run before instance sync so that Prefixes
-            # and VLANs exist when we assign them to interfaces.
+            # Phase -1: Sync projects → Tenants
             # ====================================================
-            networks = client.get_networks()
-            network_service.log_networks_info(networks)
+            projects = client.get_projects(recursion=1)
             
-            net_stats = ipam_service.sync_networks(networks, host)
-            stats['prefixes_created'] += net_stats['prefixes_created']
-            stats['prefixes_updated'] += net_stats['prefixes_updated']
-            stats['vlans_created'] += net_stats['vlans_created']
+            if not projects:
+                # Server may not support projects or has only 'default'
+                # Create a synthetic default project entry
+                self.logger.info("  No projects found (or only default). Using default project.")
+                projects = [{
+                    'name': 'default',
+                    'description': 'Default Incus project',
+                    'config': {},
+                }]
             
-            # ====================================================
-            # Phase 0.5: Sync Incus profiles → NetBox Config Contexts
-            # This MUST run before instance sync so that Config
-            # Contexts and their tags exist when we assign profile
-            # tags to VMs.
-            # ====================================================
-            profiles = client.get_profiles(recursion=1)
-            profile_stats = profile_service.sync_profiles(profiles, host)
-            stats['profiles_synced'] += profile_stats['profiles_synced']
-            stats['profiles_created'] += profile_stats['profiles_created']
-            stats['profiles_updated'] += profile_stats['profiles_updated']
-            stats['profiles_removed'] += profile_stats['profiles_removed']
+            tenant_result = tenant_service.sync_all_projects(projects)
+            tenant_map = tenant_result['tenant_map']
+            stats['tenants_created'] += tenant_result['tenants_created']
+            stats['tenants_removed'] += tenant_result['tenants_removed']
+            stats['projects_synced'] += len(tenant_map)
             
-            # ====================================================
-            # Phase 1: Instance sync
-            # ====================================================
-            instances = client.get_instances(recursion=2)
-            self.logger.info(f"  > {len(instances)} instances found.")
+            self.logger.info(f"  > {len(tenant_map)} projects synced as tenants")
             
             # Resolve NetBox Cluster
             cluster = instance_service.resolve_cluster(host, cluster_info)
@@ -177,73 +188,120 @@ class SyncIncusJob(JobRunner):
             else:
                 self.logger.info(f"  No cluster (VMs created without cluster)")
             
-            # Collect UUIDs for deletion handling
-            incus_instance_uuids = set()
+            # Collect ALL UUIDs across all projects for deletion handling
+            all_incus_uuids = set()
             
-            # Synchronize each instance
-            for instance_data in instances:
-                instance_name = instance_data.get('name')
-                config = instance_data.get('config', {})
-                incus_uuid = config.get('volatile.uuid', '')
+            # ====================================================
+            # Process each project
+            # ====================================================
+            for project_data in projects:
+                project_name = project_data.get('name', 'default')
+                project_config = project_data.get('config', {})
+                tenant = tenant_map.get(project_name)
                 
-                # Collect UUID
-                if incus_uuid:
-                    incus_instance_uuids.add(incus_uuid)
+                self.logger.info(f"  --- Project: {project_name} (tenant: {tenant}) ---")
                 
-                # Instance Sync
-                vm, created, updated = instance_service.sync_instance(
-                    instance_data, cluster, host
-                )
+                features = {
+                    'profiles': project_config.get('features.profiles', 'true' if project_name == 'default' else 'false').lower() == 'true',
+                    'networks': project_config.get('features.networks', 'false').lower() == 'true',
+                    'storage_volumes': project_config.get('features.storage.volumes', 'true' if project_name == 'default' else 'false').lower() == 'true',
+                    'images': project_config.get('features.images', 'true' if project_name == 'default' else 'false').lower() == 'true',
+                }
                 
-                if created:
-                    stats['instances_created'] += 1
-                elif updated:
-                    stats['instances_updated'] += 1
+                # ====================================================
+                # Phase 0: Sync networks for this project
+                # Only if features.networks=true OR this is default project
+                # ====================================================
+                if features['networks'] or project_name == 'default':
+                    networks = client.get_networks(project=project_name)
+                    network_service.log_networks_info(networks)
+                    
+                    net_stats = ipam_service.sync_networks(networks, host)
+                    stats['prefixes_created'] += net_stats['prefixes_created']
+                    stats['prefixes_updated'] += net_stats['prefixes_updated']
+                    stats['vlans_created'] += net_stats['vlans_created']
+                else:
+                    self.logger.info(f"    Networks inherited from default (features.networks=false)")
                 
-                # Network Sync (interfaces + IPs)
-                if vm:
-                    iface_count, ip_count = network_service.sync_instance_network(
-                        vm, instance_data, client
-                    )
-                    stats['interfaces_synced'] += iface_count
-                    stats['ips_synced'] += ip_count
+                # ====================================================
+                # Phase 0.5: Sync profiles for this project
+                # Only if features.profiles=true OR this is default project
+                # ====================================================
+                if features['profiles'] or project_name == 'default':
+                    profiles = client.get_profiles(recursion=1, project=project_name)
+                    profile_stats = profile_service.sync_profiles(profiles, host)
+                    stats['profiles_synced'] += profile_stats['profiles_synced']
+                    stats['profiles_created'] += profile_stats['profiles_created']
+                    stats['profiles_updated'] += profile_stats['profiles_updated']
+                    stats['profiles_removed'] += profile_stats['profiles_removed']
+                else:
+                    self.logger.info(f"    Profiles inherited from default (features.profiles=false)")
+                
+                # ====================================================
+                # Phase 1: Instance sync for this project
+                # Instances always belong to their project
+                # ====================================================
+                instances = client.get_instances(recursion=2, project=project_name)
+                self.logger.info(f"    > {len(instances)} instances found in project '{project_name}'")
+                
+                for instance_data in instances:
+                    config = instance_data.get('config', {})
+                    incus_uuid = config.get('volatile.uuid', '')
                     
-                    # ====================================================
-                    # Phase 2: VLAN assignment to interfaces + IP→Prefix linkage
-                    # ====================================================
-                    devices = instance_data.get('expanded_devices') or instance_data.get('devices', {})
-                    self._sync_interface_vlans_and_ips(
-                        vm, devices, host, ipam_service, stats
+                    if incus_uuid:
+                        all_incus_uuids.add(incus_uuid)
+                    
+                    # Sync instance with tenant assignment
+                    vm, created, updated = instance_service.sync_instance(
+                        instance_data, cluster, host, 
+                        tenant=tenant, project=project_name
                     )
                     
-                    # Disks Sync
-                    disk_count = disk_service.sync_instance_disks(
-                        vm, instance_data, client
-                    )
-                    stats['disks_synced'] += disk_count
+                    if created:
+                        stats['instances_created'] += 1
+                    elif updated:
+                        stats['instances_updated'] += 1
                     
-                    # Config Context Sync (instance-specific overrides to local_context_data)
-                    cc_updated, cc_created = config_context_service.sync_instance_config_context(
-                        vm, instance_data, host
-                    )
-                    if cc_created:
-                        stats['config_contexts_created'] += 1
-                    elif cc_updated:
-                        stats['config_contexts_updated'] += 1
-                    
-                    # ====================================================
-                    # Phase 3: Assign profile tags to VM
-                    # This links the VM to the Config Contexts created
-                    # in Phase 0.5 via NetBox's tag-based association.
-                    # ====================================================
-                    instance_profiles = instance_data.get('profiles', [])
-                    profile_service.assign_profile_tags_to_vm(vm, instance_profiles)
+                    # Network Sync (interfaces + IPs)
+                    if vm:
+                        iface_count, ip_count = network_service.sync_instance_network(
+                            vm, instance_data, client
+                        )
+                        stats['interfaces_synced'] += iface_count
+                        stats['ips_synced'] += ip_count
+                        
+                        # Phase 2: VLAN assignment + IP→Prefix linkage
+                        devices = instance_data.get('expanded_devices') or instance_data.get('devices', {})
+                        self._sync_interface_vlans_and_ips(
+                            vm, devices, host, ipam_service, stats
+                        )
+                        
+                        # Disks Sync
+                        disk_count = disk_service.sync_instance_disks(
+                            vm, instance_data, client
+                        )
+                        stats['disks_synced'] += disk_count
+                        
+                        # Config Context Sync
+                        cc_updated, cc_created = config_context_service.sync_instance_config_context(
+                            vm, instance_data, host
+                        )
+                        if cc_created:
+                            stats['config_contexts_created'] += 1
+                        elif cc_updated:
+                            stats['config_contexts_updated'] += 1
+                        
+                        # Phase 3: Assign profile tags to VM
+                        instance_profiles = instance_data.get('profiles', [])
+                        profile_service.assign_profile_tags_to_vm(vm, instance_profiles)
             
-            # Handle deletions (using UUIDs)
-            deleted = instance_service.handle_deletions(cluster, host, incus_instance_uuids)
+            # ====================================================
+            # Handle deletions (using UUIDs across all projects)
+            # ====================================================
+            deleted = instance_service.handle_deletions(cluster, host, all_incus_uuids)
             stats['instances_removed'] += deleted
             
-            # Instance logs synchronization (QEMU logs -> Journal Entries)
+            # Instance logs synchronization
             self.logger.info(f"  Synchronizing instance logs...")
             logs_count = event_service.sync_events(host, client)
             stats['logs_synced'] += logs_count
@@ -330,22 +388,21 @@ class SyncEventsJob(JobRunner):
             self.logger.warning("No Incus host configured or enabled.")
             return
         
-        event_service = EventSyncService(logger=self.logger)
         total_logs = 0
         
         for host in hosts:
-            self.logger.info(f"Processing host: {host.name}")
             try:
                 client = IncusClient(host=host)
                 success, message, _ = client.test_connection()
                 if not success:
-                    self.logger.error(f"  Connection failure: {message}")
+                    self.logger.error(f"  {host.name}: {message}")
                     continue
                 
+                event_service = EventSyncService(logger=self.logger)
                 logs_count = event_service.sync_events(host, client)
                 total_logs += logs_count
                 
             except Exception as e:
-                self.logger.error(f"Error processing {host.name}: {e}")
+                self.logger.error(f"  Error on {host.name}: {e}")
         
-        self.logger.info(f"Logs synchronization finished. {total_logs} log entries synced.")
+        self.logger.info(f"Logs synchronization finished. {total_logs} entries synced.")
