@@ -61,7 +61,7 @@ class NetworkSyncService:
             interfaces_synced += 1
             
             if iface_created:
-                self.log('info', f"    Interface created: {iface_name}")
+                self.log('debug', f"    Interface created: {iface_name}")
             
             hwaddr = iface_data.get('hwaddr', '')
             if hwaddr and hwaddr != '00:00:00:00:00:00':
@@ -234,7 +234,7 @@ class NetworkSyncService:
                     assigned_object_id=interface.pk,
                     description=f"Synced from Incus - {interface.virtual_machine.name}",
                 )
-                self.log('info', f"    MAC created: {hwaddr_normalized}")
+                self.log('debug', f"    MAC created: {hwaddr_normalized}")
             
             # Set as primary MAC for this interface
             if interface.primary_mac_address_id != mac_obj.pk:
@@ -314,7 +314,7 @@ class NetworkSyncService:
             description=f"Incus instance: {vm_name} ({interface.name})",
         )
         
-        self.log('info', f"    IP created: {ip_cidr} on {interface.name}")
+        self.log('debug', f"    IP created: {ip_cidr} on {interface.name}")
         return ip_obj
     
     def _cleanup_old_ips(self, interface, current_ip_cidrs):
@@ -365,11 +365,21 @@ class NetworkSyncService:
         if not networks:
             return
         
-        self.log('info', f"  Incus Networks: {len(networks)}")
-        for net in networks:
+        managed = [n for n in networks if n.get('managed', False)]
+        unmanaged = [n for n in networks if not n.get('managed', False)]
+        
+        # INFO: one-line summary
+        self.log('info', f"    Networks: {len(managed)} managed / {len(networks)} total")
+        
+        # DEBUG: detail of managed networks
+        for net in managed:
             net_name = net.get('name', 'unknown')
             net_type = net.get('type', 'unknown')
-            managed = net.get('managed', False)
             config = net.get('config', {})
             ipv4 = config.get('ipv4.address', 'N/A')
-            self.log('info', f"    - {net_name} ({net_type}, managed={managed}, IPv4={ipv4})")
+            self.log('debug', f"      {net_name} ({net_type}, IPv4={ipv4})")
+        
+        # DEBUG: summary of unmanaged networks (single line)
+        if unmanaged:
+            names = ', '.join(n.get('name', '?') for n in unmanaged)
+            self.log('debug', f"      Skipped {len(unmanaged)} unmanaged: {names}")

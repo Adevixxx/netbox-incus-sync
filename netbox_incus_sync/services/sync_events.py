@@ -58,14 +58,18 @@ class EventSyncService:
         )
 
         if not managed_vms.exists():
-            self.log('info', f"  No managed VMs found for host {host.name}")
+            self.log('debug', f"  No managed VMs found for host {host.name}")
             return 0
 
-        self.log('info', f"  Syncing logs for {managed_vms.count()} instances...")
+        self.log('debug', f"  Scanning logs for {managed_vms.count()} instances...")
 
         for vm in managed_vms:
             count = self._sync_instance_logs(vm, host, client)
             logs_synced += count
+
+        self.log('info',
+            f"  Logs: {logs_synced} journal entries synced "
+            f"for {managed_vms.count()} instances")
 
         return logs_synced
 
@@ -110,7 +114,7 @@ class EventSyncService:
 
             self._create_log_journal_entry(vm, host, log_file, content)
             entries_created += 1
-            self.log('info', f"    Journal: {vm.name} - {log_file} ({len(content)} bytes)")
+            self.log('debug', f"    Journal: {vm.name} - {log_file} ({len(content)} bytes)")
 
         return entries_created
 

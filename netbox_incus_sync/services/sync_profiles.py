@@ -89,7 +89,6 @@ class ProfileSyncService:
             self.log('info', '  No profiles to sync')
             return stats
         
-        self.log('info', f'  > {len(profiles_data)} profiles found')
         
         # Track which context names we've seen for cleanup
         synced_context_names = set()
@@ -117,6 +116,10 @@ class ProfileSyncService:
         # Cleanup: remove Config Contexts for profiles that no longer exist
         removed = self._cleanup_stale_contexts(host.name, synced_context_names)
         stats['profiles_removed'] = removed
+
+        changed = stats['profiles_created'] + stats['profiles_updated'] + stats['profiles_removed']
+        self.log('info', f"    Profiles: {stats['profiles_synced']} synced ({changed} changed)")
+
         
         return stats
     

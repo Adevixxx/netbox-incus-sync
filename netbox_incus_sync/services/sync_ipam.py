@@ -80,7 +80,7 @@ class IpamSyncService:
             config = net_data.get('config', {})
             description = net_data.get('description', '')
             
-            self.log('info', f"  Syncing Incus network: {net_name} ({net_type})")
+            self.log('debug', f"    Syncing network: {net_name} ({net_type})")
             
             cache_entry = {
                 'prefix_v4': None,

@@ -260,7 +260,8 @@ class InstanceSyncService:
         
         mem_str = f"{memory_mb}MB" if memory_mb else "N/A"
         cpu_str = f"{vcpus}" if vcpus else "N/A"
-        self.log('info', f"  {action}: {vm_name} ({type_label}, vCPU={cpu_str}, RAM={mem_str}){cluster_info_str}{location_info}{device_info}{tenant_info}{project_info}")
+        log_level = 'info' if action in ('Created', 'Renamed (') else 'debug'
+        self.log(log_level, f"  {action}: {vm_name} ({type_label}, vCPU={cpu_str}, RAM={mem_str}){cluster_info_str}{location_info}{device_info}{tenant_info}{project_info}")
         
         return vm, created, not created
     

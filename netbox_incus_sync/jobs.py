@@ -199,7 +199,8 @@ class SyncIncusJob(JobRunner):
                 project_config = project_data.get('config', {})
                 tenant = tenant_map.get(project_name)
                 
-                self.logger.info(f"  --- Project: {project_name} (tenant: {tenant}) ---")
+                self.logger.info(f"  --- Project: {project_name} ---")
+                self.logger.debug(f"    Tenant: {tenant}")
                 
                 features = {
                     'profiles': project_config.get('features.profiles', 'true' if project_name == 'default' else 'false').lower() == 'true',
@@ -242,7 +243,13 @@ class SyncIncusJob(JobRunner):
                 # Instances always belong to their project
                 # ====================================================
                 instances = client.get_instances(recursion=2, project=project_name)
-                self.logger.info(f"    > {len(instances)} instances found in project '{project_name}'")
+
+                # Per-project counters for summary
+                project_created = 0
+                project_updated = 0
+                project_ifaces = 0
+                project_ips = 0
+                project_disks = 0
                 
                 for instance_data in instances:
                     config = instance_data.get('config', {})
@@ -258,8 +265,10 @@ class SyncIncusJob(JobRunner):
                     )
                     
                     if created:
+                        project_created += 1
                         stats['instances_created'] += 1
                     elif updated:
+                        project_updated += 1
                         stats['instances_updated'] += 1
                     
                     # Network Sync (interfaces + IPs)
@@ -267,6 +276,8 @@ class SyncIncusJob(JobRunner):
                         iface_count, ip_count = network_service.sync_instance_network(
                             vm, instance_data, client
                         )
+                        project_ifaces += iface_count
+                        project_ips += ip_count
                         stats['interfaces_synced'] += iface_count
                         stats['ips_synced'] += ip_count
                         
@@ -280,6 +291,7 @@ class SyncIncusJob(JobRunner):
                         disk_count = disk_service.sync_instance_disks(
                             vm, instance_data, client
                         )
+                        project_disks += disk_count
                         stats['disks_synced'] += disk_count
                         
                         # Config Context Sync
@@ -302,7 +314,6 @@ class SyncIncusJob(JobRunner):
             stats['instances_removed'] += deleted
             
             # Instance logs synchronization
-            self.logger.info(f"  Synchronizing instance logs...")
             logs_count = event_service.sync_events(host, client)
             stats['logs_synced'] += logs_count
                 

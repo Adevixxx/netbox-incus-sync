@@ -67,7 +67,7 @@ class DiskSyncService:
                     if disk.custom_field_data.get('incus_disk_used'):
                         used = disk.custom_field_data.get('incus_disk_used', 0)
                         usage_info = f", used: {used} MB"
-                    self.log('info', f"    Disk created: {disk_name} ({disk.size} MB{usage_info})")
+                    self.log('debug', f"    Disk created: {disk_name} ({disk.size} MB{usage_info})")
         
         self._cleanup_old_disks(vm, current_disk_names)
         
@@ -125,68 +125,36 @@ class DiskSyncService:
         """Updates disk Custom Fields including usage statistics."""
         updated = False
         
-        # Basic fields
-        if path and disk.custom_field_data.get('incus_mount_path') != path:
-            disk.custom_field_data['incus_mount_path'] = path
-            updated = True
+        cf_updates = {
+            'incus_disk_path': path,
+            'incus_disk_pool': pool,
+            'incus_disk_source': source,
+            'incus_disk_type': disk_type,
+        }
         
-        if pool and disk.custom_field_data.get('incus_storage_pool') != pool:
-            disk.custom_field_data['incus_storage_pool'] = pool
-            updated = True
-        
-        if source and disk.custom_field_data.get('incus_volume_source') != source:
-            disk.custom_field_data['incus_volume_source'] = source
-            updated = True
-        elif not source and 'incus_volume_source' in disk.custom_field_data:
-            del disk.custom_field_data['incus_volume_source']
-            updated = True
-        
-        if disk_type and disk.custom_field_data.get('incus_disk_type') != disk_type:
-            disk.custom_field_data['incus_disk_type'] = disk_type
-            updated = True
-        
-        # Usage statistics fields
+        # Add usage statistics if available
         if usage_stats:
-            # Used space in MB
             if 'used' in usage_stats:
-                used_mb = usage_stats['used']
-                if disk.custom_field_data.get('incus_disk_used') != used_mb:
-                    disk.custom_field_data['incus_disk_used'] = used_mb
-                    updated = True
-            
-            # Total space in MB (may differ from configured size for some drivers)
+                cf_updates['incus_disk_used'] = usage_stats['used']
             if 'total' in usage_stats:
-                total_mb = usage_stats['total']
-                if disk.custom_field_data.get('incus_disk_total') != total_mb:
-                    disk.custom_field_data['incus_disk_total'] = total_mb
-                    updated = True
-            
-            # Usage percentage (0-100)
-            if 'percentage' in usage_stats:
-                percentage = usage_stats['percentage']
-                if disk.custom_field_data.get('incus_disk_usage_percent') != percentage:
-                    disk.custom_field_data['incus_disk_usage_percent'] = percentage
-                    updated = True
-            
-            # Storage driver type (zfs, btrfs, lvm, dir, etc.)
+                cf_updates['incus_disk_total'] = usage_stats['total']
+            if 'percentage' in usage_stats and usage_stats['percentage'] is not None:
+                cf_updates['incus_disk_percentage'] = usage_stats['percentage']
             if 'driver' in usage_stats:
-                driver = usage_stats['driver']
-                if disk.custom_field_data.get('incus_storage_driver') != driver:
-                    disk.custom_field_data['incus_storage_driver'] = driver
-                    updated = True
-            
-            # Content type (filesystem or block)
+                cf_updates['incus_disk_driver'] = usage_stats['driver']
             if 'content_type' in usage_stats:
-                content_type = usage_stats['content_type']
-                if disk.custom_field_data.get('incus_disk_content_type') != content_type:
-                    disk.custom_field_data['incus_disk_content_type'] = content_type
-                    updated = True
+                cf_updates['incus_disk_content_type'] = usage_stats['content_type']
+        
+        for key, value in cf_updates.items():
+            if value and disk.custom_field_data.get(key) != value:
+                disk.custom_field_data[key] = value
+                updated = True
         
         if updated:
             disk.save()
     
-    def _get_disk_size(self, size_raw, pool, source, disk_name, vm_name, client, instance_type='container'):
-        """Gets the configured/allocated disk size."""
+    def _get_disk_size(self, size_raw, pool, source, disk_name, vm_name, client, instance_type):
+        """Gets disk size from multiple sources."""
         if size_raw:
             size_mb = parse_size(size_raw)
             if size_mb:
