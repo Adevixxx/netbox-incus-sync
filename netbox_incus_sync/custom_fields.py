@@ -240,6 +240,18 @@ CUSTOM_FIELDS = [
         'is_cloneable': False,
         'group_name': 'Incus',
     },
+    # ========== Custom Fields for Device (Hypervisor / Incus node) ==========
+    {
+        'name': 'incus_version',
+        'label': 'Incus Version',
+        'type': CustomFieldTypeChoices.TYPE_TEXT,
+        'description': 'Incus server version running on this node',
+        'object_types': ['dcim.device'],
+        'ui_visible': CustomFieldUIVisibleChoices.ALWAYS,
+        'ui_editable': CustomFieldUIEditableChoices.HIDDEN,
+        'is_cloneable': False,
+        'group_name': 'Incus',
+    },
 ]
 
 

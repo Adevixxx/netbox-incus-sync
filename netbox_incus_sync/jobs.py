@@ -148,8 +148,12 @@ class SyncIncusJob(JobRunner):
                 
             self.logger.info(f"  {message}")
             
-            # Log server info
-            self._log_server_info(client)
+            # Log server info and retrieve Incus version
+            incus_version = self._log_server_info(client)
+            
+            # Pass Incus version to instance service for Device custom field
+            if incus_version:
+                instance_service.set_incus_version(incus_version)
             
             # Retrieve Incus cluster info
             cluster_info = self._get_cluster_info(client)
@@ -348,18 +352,26 @@ class SyncIncusJob(JobRunner):
             ipam_service.link_ip_to_prefix(ip)
     
     def _log_server_info(self, client):
-        """Logs Incus server information."""
+        """
+        Logs Incus server information and returns the server version.
+        
+        Returns:
+            str or None: The Incus server version, or None if unavailable.
+        """
         try:
             server_info = client.get_server_info()
             if server_info:
                 env = server_info.get('environment', {})
+                version = env.get('server_version', '')
                 self.logger.info(
                     f"  Server: {env.get('server_name', 'unknown')} "
-                    f"v{env.get('server_version', '?')} "
+                    f"v{version or '?'} "
                     f"({env.get('kernel', 'unknown')} {env.get('kernel_version', '')})"
                 )
+                return version or None
         except Exception:
             pass
+        return None
     
     def _get_cluster_info(self, client):
         """Retrieves Incus cluster info (or None if not clustered)."""
@@ -393,21 +405,21 @@ class SyncEventsJob(JobRunner):
             self.logger.warning("No Incus host configured or enabled.")
             return
         
+        event_service = EventSyncService(logger=self.logger)
         total_logs = 0
         
         for host in hosts:
+            self.logger.info(f"Processing host: {host.name}")
             try:
                 client = IncusClient(host=host)
                 success, message, _ = client.test_connection()
                 if not success:
-                    self.logger.error(f"  {host.name}: {message}")
+                    self.logger.error(f"  Connection failure: {message}")
                     continue
                 
-                event_service = EventSyncService(logger=self.logger)
                 logs_count = event_service.sync_events(host, client)
                 total_logs += logs_count
-                
             except Exception as e:
-                self.logger.error(f"  Error on {host.name}: {e}")
+                self.logger.error(f"Error processing {host.name}: {e}")
         
-        self.logger.info(f"Logs synchronization finished. {total_logs} entries synced.")
+        self.logger.info(f"Logs synchronization finished. Total: {total_logs} log entries")

@@ -26,6 +26,7 @@ class InstanceSyncService:
         self._cluster_type = None
         self._device_role = None
         self._device_type = None
+        self._incus_version = None
     
     def log(self, level, message):
         if self.logger:
@@ -33,6 +34,17 @@ class InstanceSyncService:
     
     def setup(self):
         self.tags = ensure_tags_exist(self.logger)
+    
+    def set_incus_version(self, version):
+        """
+        Sets the Incus server version to be stored on Devices.
+        
+        Called by the job orchestrator after retrieving server info.
+        
+        Args:
+            version: Incus server version string (e.g. '6.7')
+        """
+        self._incus_version = version
     
     # ========== Cluster Management ==========
     
@@ -123,6 +135,8 @@ class InstanceSyncService:
         """
         Resolves or creates a Device for an Incus cluster node.
         
+        Also updates the Incus version custom field on the Device if available.
+        
         Args:
             location: Incus cluster node name (from instance 'location' field)
             host: IncusHost instance (for default_site)
@@ -137,10 +151,22 @@ class InstanceSyncService:
         device = Device.objects.filter(name=location).first()
         
         if device:
+            updated = False
+            
             if cluster and device.cluster != cluster:
                 device.cluster = cluster
-                device.save(update_fields=['cluster'])
+                updated = True
                 self.log('info', f"  Device '{location}' assigned to cluster '{cluster.name}'")
+            
+            # Update Incus version on existing device
+            if self._incus_version and device.custom_field_data.get('incus_version') != self._incus_version:
+                device.custom_field_data['incus_version'] = self._incus_version
+                updated = True
+                self.log('debug', f"  Device '{location}' Incus version updated to {self._incus_version}")
+            
+            if updated:
+                device.save()
+            
             return device
         
         # Auto-create the Device
@@ -162,6 +188,11 @@ class InstanceSyncService:
             status='active',
             description=f"Incus cluster node (auto-created by Incus Sync from {host.name})",
         )
+        
+        # Set Incus version on newly created device
+        if self._incus_version:
+            device.custom_field_data['incus_version'] = self._incus_version
+            device.save()
         
         self.log('info', f"  Device auto-created: {location} (site: {site.name}, cluster: {cluster.name if cluster else 'none'})")
         return device
@@ -392,68 +423,59 @@ class InstanceSyncService:
         """
         Extracts CPU count from expanded_config (preferred) or config.
         
-        Incus CPU limits can be:
-        - An integer: number of CPUs
-        - A range: "0-3" means CPUs 0,1,2,3 (4 CPUs)
-        - A comma list: "0,2" means 2 CPUs
-        - A decimal for CPU time limit: "2.5" means 2.5 CPUs worth of time
+        Handles both integer values and range formats (e.g., "0-3" = 4 CPUs).
         """
-        cpu_value = expanded_config.get('limits.cpu') or config.get('limits.cpu')
-        
-        if not cpu_value:
+        cpu_str = expanded_config.get('limits.cpu') or config.get('limits.cpu')
+        if not cpu_str:
             return None
         
-        cpu_str = str(cpu_value).strip()
+        cpu_str = str(cpu_str).strip()
         
-        try:
-            # Range format: "0-3"
-            if '-' in cpu_str and not cpu_str.startswith('-'):
+        # Range format: "0-3" means CPUs 0,1,2,3 = 4 CPUs
+        if '-' in cpu_str and not cpu_str.startswith('-'):
+            try:
                 parts = cpu_str.split('-')
-                if len(parts) == 2:
-                    start, end = int(parts[0]), int(parts[1])
-                    return end - start + 1
-            
-            # Comma-separated list: "0,2,4"
-            if ',' in cpu_str:
-                return len(cpu_str.split(','))
-            
-            # Direct number (int or float)
-            return float(cpu_str)
-            
-        except (ValueError, TypeError):
-            self.log('debug', f"    Unable to parse CPU value: {cpu_value}")
+                start = int(parts[0])
+                end = int(parts[1])
+                return end - start + 1
+            except (ValueError, IndexError):
+                pass
+        
+        # Comma-separated: "0,1,2,3" = 4 CPUs
+        if ',' in cpu_str:
+            return len(cpu_str.split(','))
+        
+        # Simple integer
+        try:
+            return int(cpu_str)
+        except ValueError:
             return None
     
     def _extract_memory(self, expanded_config, config):
-        """Extracts memory from expanded_config (preferred) or config."""
-        memory_value = expanded_config.get('limits.memory') or config.get('limits.memory')
-        return parse_memory(memory_value)
+        """Extracts memory in MB from expanded_config (preferred) or config."""
+        mem_str = expanded_config.get('limits.memory') or config.get('limits.memory')
+        if not mem_str:
+            return None
+        return parse_memory(str(mem_str))
     
     def _extract_disk(self, devices):
-        """Extracts root disk size from devices."""
-        for dev_name, dev_conf in devices.items():
-            if dev_conf.get('type') == 'disk' and dev_conf.get('path') == '/':
-                raw_disk = dev_conf.get('size', '0')
-                return parse_size(raw_disk)
-        return 0
+        """Extracts root disk size in MB from devices."""
+        for dev_name, dev_config in devices.items():
+            if dev_config.get('type') == 'disk' and dev_config.get('path') == '/':
+                size_str = dev_config.get('size', '')
+                if size_str:
+                    return parse_size(size_str)
+        return None
     
     def _apply_tags(self, vm, instance_type):
-        managed_tag = self.tags.get('incus-managed') or Tag.objects.get(slug='incus-managed')
+        """Applies tags to the VM."""
+        # Managed tag
+        managed_tag = self.tags.get('incus-managed')
+        if managed_tag and managed_tag not in vm.tags.all():
+            vm.tags.add(managed_tag)
         
-        if instance_type == 'container':
-            type_tag = self.tags.get('incus-container') or Tag.objects.get(slug='incus-container')
-            other_tag_slug = 'incus-vm'
-        else:
-            type_tag = self.tags.get('incus-vm') or Tag.objects.get(slug='incus-vm')
-            other_tag_slug = 'incus-container'
-        
-        vm.tags.add(managed_tag)
-        vm.tags.add(type_tag)
-        
-        try:
-            other_tag = Tag.objects.get(slug=other_tag_slug)
-            vm.tags.remove(other_tag)
-        except Tag.DoesNotExist:
-            pass
-        
-        vm.save()
+        # Type tag
+        type_tag_slug = f'incus-{instance_type}'
+        type_tag = self.tags.get(type_tag_slug)
+        if type_tag and type_tag not in vm.tags.all():
+            vm.tags.add(type_tag)
