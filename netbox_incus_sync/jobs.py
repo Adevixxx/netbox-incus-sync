@@ -26,30 +26,27 @@ class SyncIncusJob(JobRunner):
     """
     Job to synchronize Incus instances to NetBox.
     
-    Synchronizes:
-    - Incus projects to NetBox Tenants
-    - Incus managed networks to NetBox Prefixes and VLANs
-    - Incus profiles to NetBox Config Contexts (tag-based stacking)
-    - Instances (VMs/containers) to VirtualMachine (with Tenant assignment)
-    - NetBox Cluster (automatically created if Incus is in cluster mode)
-    - Network Interfaces (with VLAN assignment)
-    - IP Addresses (with Prefix/VRF linkage)
-    - Virtual Disks
-    - Instance logs (QEMU logs to Journal Entries)
-    - Config Contexts (instance-specific overrides to local_context_data)
+    Supports syncing all enabled hosts (default) or specific hosts
+    by passing host_ids=[...] to enqueue().
     """
     
     class Meta:
         name = "Incus Synchronization"
 
     def run(self, *args, **kwargs):
-        self.logger.info("Initializing Incus synchronization...")
+        # Support filtering by specific host IDs (for single/multi-host sync)
+        host_ids = kwargs.get('host_ids', None)
+        
+        if host_ids:
+            hosts = IncusHost.objects.filter(pk__in=host_ids, enabled=True)
+            host_names = ', '.join(hosts.values_list('name', flat=True))
+            self.logger.info(f"Initializing Incus synchronization for: {host_names}")
+        else:
+            self.logger.info("Initializing Incus synchronization...")
+            hosts = IncusHost.objects.filter(enabled=True)
         
         # Create Custom Fields if necessary
         ensure_custom_fields_exist(logger=self.logger)
-        
-        # Retrieve configured hosts
-        hosts = IncusHost.objects.filter(enabled=True)
         
         if not hosts.exists():
             self.logger.warning("No Incus host configured or enabled.")
@@ -163,14 +160,17 @@ class SyncIncusJob(JobRunner):
             projects = client.get_projects(recursion=1)
             
             if not projects:
-                # Server may not support projects or has only 'default'
-                # Create a synthetic default project entry
                 self.logger.info("  No projects found (or only default). Using default project.")
                 projects = [{
                     'name': 'default',
                     'description': 'Default Incus project',
                     'config': {},
                 }]
+            
+            # Filter projects if sync_projects is configured
+            if host.sync_projects:
+                projects = [p for p in projects if p.get('name') in host.sync_projects]
+                self.logger.info(f"  Filtered to {len(projects)} project(s): {host.sync_projects}")
             
             tenant_result = tenant_service.sync_all_projects(projects)
             tenant_map = tenant_result['tenant_map']
@@ -211,7 +211,6 @@ class SyncIncusJob(JobRunner):
                 
                 # ====================================================
                 # Phase 0: Sync networks for this project
-                # Only if features.networks=true OR this is default project
                 # ====================================================
                 if features['networks'] or project_name == 'default':
                     networks = client.get_networks(project=project_name)
@@ -226,7 +225,6 @@ class SyncIncusJob(JobRunner):
                 
                 # ====================================================
                 # Phase 0.5: Sync profiles for this project
-                # Only if features.profiles=true OR this is default project
                 # ====================================================
                 if features['profiles'] or project_name == 'default':
                     profiles = client.get_profiles(recursion=1, project=project_name)
@@ -240,11 +238,9 @@ class SyncIncusJob(JobRunner):
                 
                 # ====================================================
                 # Phase 1: Instance sync for this project
-                # Instances always belong to their project
                 # ====================================================
                 instances = client.get_instances(recursion=2, project=project_name)
 
-                # Per-project counters for summary
                 project_created = 0
                 project_updated = 0
                 project_ifaces = 0
@@ -258,7 +254,6 @@ class SyncIncusJob(JobRunner):
                     if incus_uuid:
                         all_incus_uuids.add(incus_uuid)
                     
-                    # Sync instance with tenant assignment
                     vm, created, updated = instance_service.sync_instance(
                         instance_data, cluster, host, 
                         tenant=tenant, project=project_name
@@ -271,7 +266,6 @@ class SyncIncusJob(JobRunner):
                         project_updated += 1
                         stats['instances_updated'] += 1
                     
-                    # Network Sync (interfaces + IPs)
                     if vm:
                         iface_count, ip_count = network_service.sync_instance_network(
                             vm, instance_data, client
@@ -281,7 +275,7 @@ class SyncIncusJob(JobRunner):
                         stats['interfaces_synced'] += iface_count
                         stats['ips_synced'] += ip_count
                         
-                        # Phase 2: VLAN assignment + IP→Prefix linkage
+                        # VLAN assignment + IP→Prefix linkage
                         devices = instance_data.get('expanded_devices') or instance_data.get('devices', {})
                         self._sync_interface_vlans_and_ips(
                             vm, devices, host, ipam_service, stats
@@ -303,9 +297,15 @@ class SyncIncusJob(JobRunner):
                         elif cc_updated:
                             stats['config_contexts_updated'] += 1
                         
-                        # Phase 3: Assign profile tags to VM
+                        # Assign profile tags to VM
                         instance_profiles = instance_data.get('profiles', [])
                         profile_service.assign_profile_tags_to_vm(vm, instance_profiles)
+                
+                self.logger.info(
+                    f"    Project '{project_name}': "
+                    f"+{project_created} ~{project_updated} instances, "
+                    f"{project_ifaces} ifaces, {project_ips} IPs, {project_disks} disks"
+                )
             
             # ====================================================
             # Handle deletions (using UUIDs across all projects)
@@ -325,9 +325,6 @@ class SyncIncusJob(JobRunner):
     def _sync_interface_vlans_and_ips(self, vm, devices, host, ipam_service, stats):
         """
         Post-sync step: assign VLANs to VM interfaces and link IPs to Prefixes/VRFs.
-        
-        This runs after NetworkSyncService has created the interfaces and IPs,
-        so we can now enrich them with VLAN and VRF data.
         """
         from virtualization.models import VMInterface
         from ipam.models import IPAddress
@@ -335,16 +332,13 @@ class SyncIncusJob(JobRunner):
         
         vm_iface_ct = ContentType.objects.get_for_model(VMInterface)
         
-        # Assign VLANs to interfaces
         for iface in VMInterface.objects.filter(virtual_machine=vm):
-            # Find the matching device config
             device_name = iface.custom_field_data.get('incus_device_name', iface.name)
             device_config = devices.get(device_name, {})
             
             if device_config:
                 ipam_service.assign_vlan_to_interface(iface, device_config, host)
         
-        # Link IPs to Prefixes/VRFs
         for ip in IPAddress.objects.filter(
             assigned_object_type=vm_iface_ct,
             assigned_object_id__in=VMInterface.objects.filter(

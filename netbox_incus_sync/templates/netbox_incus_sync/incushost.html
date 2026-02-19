@@ -10,6 +10,12 @@
 {% endblock breadcrumbs %}
 
 {% block extra_controls %}
+{% if object.enabled %}
+<a href="{% url 'plugins:netbox_incus_sync:sync_host' pk=object.pk %}" class="btn btn-sm btn-blue"
+    title="Sync this host">
+    <i class="mdi mdi-sync"></i> Sync Host
+</a>
+{% endif %}
 <button type="button" class="btn btn-sm btn-outline-primary" id="test-connection-btn" title="Test Connection">
     <i class="mdi mdi-connection"></i> Test Connection
 </button>

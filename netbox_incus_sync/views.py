@@ -103,9 +103,9 @@ class IncusHostDeleteView(generic.ObjectDeleteView):
     queryset = IncusHost.objects.all()
 
 
-@register_model_view(IncusHost, 'changelog')
-class IncusHostChangeLogView(generic.ObjectChangeLogView):
-    queryset = IncusHost.objects.all()
+# NOTE: ChangeLogView is NOT registered here explicitly.
+# NetBoxModel + get_model_urls() already provides the changelog tab automatically.
+# Registering it again with @register_model_view causes a duplicate "Changelog" tab.
 
 
 class IncusHostBulkDeleteView(generic.BulkDeleteView):
@@ -118,11 +118,50 @@ class IncusHostBulkDeleteView(generic.BulkDeleteView):
 # ============================================
 
 class IncusSyncView(View):
-    """Starts full Incus synchronization (instances, network, disks, logs, cluster)."""
+    """Starts full Incus synchronization (all enabled hosts)."""
     
     def get(self, request):
         job = SyncIncusJob.enqueue()
         messages.success(request, f"Full Incus synchronization started (Job #{job.pk})")
+        return redirect('plugins:netbox_incus_sync:incushost_list')
+
+
+class IncusSyncHostView(View):
+    """Starts synchronization for a single Incus host (or multiple via query params)."""
+    
+    def get(self, request, pk):
+        """Sync a single host by PK."""
+        host = get_object_or_404(IncusHost, pk=pk)
+        if not host.enabled:
+            messages.warning(request, f"Host '{host.name}' is disabled. Enable it first.")
+            return redirect('plugins:netbox_incus_sync:incushost', pk=pk)
+        
+        job = SyncIncusJob.enqueue(host_ids=[host.pk])
+        messages.success(request, f"Synchronization started for '{host.name}' (Job #{job.pk})")
+        
+        # Redirect back to where we came from
+        next_url = request.GET.get('next')
+        if next_url:
+            return redirect(next_url)
+        return redirect('plugins:netbox_incus_sync:incushost', pk=pk)
+    
+    def post(self, request):
+        """Sync multiple hosts by PK (from list view bulk action)."""
+        host_ids = request.POST.getlist('pk')
+        if not host_ids:
+            messages.warning(request, "No hosts selected.")
+            return redirect('plugins:netbox_incus_sync:incushost_list')
+        
+        host_ids = [int(pk) for pk in host_ids]
+        hosts = IncusHost.objects.filter(pk__in=host_ids, enabled=True)
+        
+        if not hosts.exists():
+            messages.warning(request, "No enabled hosts found in selection.")
+            return redirect('plugins:netbox_incus_sync:incushost_list')
+        
+        job = SyncIncusJob.enqueue(host_ids=list(hosts.values_list('pk', flat=True)))
+        host_names = ', '.join(hosts.values_list('name', flat=True))
+        messages.success(request, f"Synchronization started for {hosts.count()} host(s): {host_names} (Job #{job.pk})")
         return redirect('plugins:netbox_incus_sync:incushost_list')
 
 
@@ -189,80 +228,59 @@ class IncusVMScreenshotView(View):
                     "Unable to capture screenshot. The VM may be stopped or the VGA console unavailable."
                 )
             
+            # Delete previous screenshots
             vm_ct = ContentType.objects.get_for_model(VirtualMachine)
-            
-            # Delete existing Incus screenshots (keep only one)
-            old_screenshots = ImageAttachment.objects.filter(
+            ImageAttachment.objects.filter(
                 object_type=vm_ct,
                 object_id=vm.pk,
                 name__startswith='incus-screenshot-'
-            )
-            old_screenshots.delete()
+            ).delete()
             
-            # Create new screenshot attachment
+            # Create new ImageAttachment
             timestamp = timezone.now().strftime('%Y%m%d-%H%M%S')
             filename = f"incus-screenshot-{vm.name}-{timestamp}.png"
             
-            image_file = ContentFile(screenshot_data, name=filename)
-            
-            ImageAttachment.objects.create(
+            attachment = ImageAttachment(
                 object_type=vm_ct,
                 object_id=vm.pk,
-                image=image_file,
                 name=f"incus-screenshot-{vm.name}",
+                image=ContentFile(screenshot_data, name=filename),
             )
-            
-            size_kb = len(screenshot_data) // 1024
+            attachment.save()
             
             return self._respond(
                 request, vm, True,
-                f"Screenshot captured for {vm.name} ({size_kb} KB)"
+                f"Screenshot captured for {vm.name}",
+                screenshot_url=attachment.image.url
             )
             
         except Exception as e:
-            return self._respond(request, vm, False, f"Error: {str(e)}", status=500)
+            return self._respond(
+                request, vm, False,
+                f"Error capturing screenshot: {str(e)}"
+            )
     
-    def _respond(self, request, vm, success, message, status=None):
-        """Helper to respond in AJAX or redirect mode."""
-        is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
-        
-        if is_ajax:
-            # For AJAX, include the new screenshot URL if success
+    def _respond(self, request, vm, success, message, screenshot_url=None):
+        """Returns JSON or redirect response."""
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
             data = {'success': success, 'message': message}
-            
-            if success:
-                vm_ct = ContentType.objects.get_for_model(VirtualMachine)
-                screenshot = ImageAttachment.objects.filter(
-                    object_type=vm_ct,
-                    object_id=vm.pk,
-                    name__startswith='incus-screenshot-'
-                ).order_by('-created').first()
-                if screenshot:
-                    data['screenshot_url'] = screenshot.image.url
-                    data['screenshot_date'] = screenshot.created.strftime('%Y-%m-%d %H:%M:%S')
-            
-            return JsonResponse(data, status=status or (200 if success else 400))
+            if screenshot_url:
+                data['screenshot_url'] = screenshot_url
+            return JsonResponse(data)
         
         if success:
             messages.success(request, message)
         else:
             messages.error(request, message)
-        
-        # Redirect back to the host page
-        host_name = vm.custom_field_data.get('incus_host', '')
-        try:
-            host = IncusHost.objects.get(name=host_name)
-            return redirect(host.get_absolute_url())
-        except IncusHost.DoesNotExist:
-            return redirect(vm.get_absolute_url())
+        return redirect(vm.get_absolute_url())
 
 
 # ============================================
-# Utility Views
+# Connection Test Views
 # ============================================
 
 class IncusHostTestConnectionView(View):
-    """Tests connection to an Incus host and returns the result in JSON."""
+    """Tests connection to an Incus host and returns JSON results."""
     
     def get(self, request, pk):
         host = get_object_or_404(IncusHost, pk=pk)
@@ -318,60 +336,53 @@ class IncusHostTestAllUrlsView(View):
     def get(self, request, pk):
         host = get_object_or_404(IncusHost, pk=pk)
         
-        if host.connection_type != 'https':
-            return JsonResponse({
-                'success': False,
-                'message': 'This feature is only for HTTPS connections',
-                'data': {},
-            })
-        
         try:
-            urls = host.get_https_urls()
+            import requests as req_lib
             
+            urls = host.get_https_urls()
             if not urls:
                 return JsonResponse({
                     'success': False,
-                    'message': 'No URLs configured',
-                    'data': {'urls': []},
+                    'message': 'No HTTPS URLs configured',
+                    'data': {},
                 })
             
             results = []
-            import requests
-            import os
-            
             for url in urls:
-                result = {'url': url, 'success': False, 'message': ''}
+                result = {
+                    'url': url,
+                    'success': False,
+                    'message': '',
+                }
                 
                 try:
-                    test_session = requests.Session()
+                    test_session = req_lib.Session()
                     
+                    # Configure TLS
                     if host.client_cert_path and host.client_key_path:
                         test_session.cert = (host.client_cert_path, host.client_key_path)
                     
-                    if host.ca_cert_path and os.path.isfile(host.ca_cert_path):
+                    if host.ca_cert_path:
                         test_session.verify = host.ca_cert_path
-                    else:
-                        test_session.verify = host.verify_ssl
+                    elif not host.verify_ssl:
+                        test_session.verify = False
                     
-                    test_url = f"{url.rstrip('/')}/1.0"
-                    response = test_session.get(test_url, timeout=5)
-                    response.raise_for_status()
+                    response = test_session.get(f"{url}/1.0", timeout=5)
                     
-                    data = response.json()
-                    if data.get('type') == 'sync':
-                        env = data.get('metadata', {}).get('environment', {})
-                        server_name = env.get('server_name', 'Unknown')
-                        version = env.get('server_version', 'Unknown')
+                    if response.status_code == 200:
                         result['success'] = True
-                        result['message'] = f"Connected: {server_name} v{version}"
+                        data = response.json()
+                        meta = data.get('metadata', {})
+                        env = meta.get('environment', {})
+                        result['message'] = (
+                            f"OK - {env.get('server_name', '?')} "
+                            f"v{env.get('server_version', '?')}"
+                        )
                     else:
-                        result['message'] = 'Invalid response'
-                        
-                except requests.exceptions.SSLError as e:
-                    result['message'] = f"SSL Error: {str(e)[:100]}"
-                except requests.exceptions.ConnectionError as e:
-                    result['message'] = f"Connection Error: {str(e)[:100]}"
-                except requests.exceptions.Timeout:
+                        result['message'] = f"HTTP {response.status_code}: {response.text[:100]}"
+                except req_lib.exceptions.ConnectionError as e:
+                    result['message'] = f"Connection error: {str(e)[:100]}"
+                except req_lib.exceptions.Timeout:
                     result['message'] = "Timeout (5s)"
                 except Exception as e:
                     result['message'] = f"Error: {str(e)[:100]}"

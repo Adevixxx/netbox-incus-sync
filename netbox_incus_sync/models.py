@@ -63,23 +63,14 @@ class IncusHost(NetBoxModel):
     )
 
     # ========== HTTPS Connection ==========
-    # Single URL
-    https_url = models.URLField(
-        max_length=255,
-        blank=True,
-        verbose_name='HTTPS URL',
-        help_text="Single URL. Ex: https://incus.example.com:8443 (use 'HTTPS URLs' for multiple servers)"
-    )
-    
-    # Multiple URLs support (new)
+    # URLs (one per line, supports failover)
     https_urls = models.TextField(
         blank=True,
-        verbose_name='HTTPS URLs (Multi-server)',
+        verbose_name='HTTPS URLs',
         help_text=(
-            "Multiple URLs, one per line. The system will test each until one works.\n"
-            "Example:\n"
-            "https://incus1.example.com:8443\n"
-            "https://incus2.example.com:8443"
+            "Server URLs, one per line. Lines starting with # are ignored.\n"
+            "The system tests each URL in order until one works, then caches the result.\n"
+            "Example:\nhttps://incus1.example.com:8443\nhttps://incus2.example.com:8443"
         )
     )
     
@@ -188,7 +179,7 @@ class IncusHost(NetBoxModel):
                 if len(urls) == 1:
                     return urls[0]
                 return f"{urls[0]} (+{len(urls)-1} more)"
-            return self.https_url
+            return "No URL configured"
         return self.socket_path
 
     # ========== Multi-URL Methods ==========
@@ -196,24 +187,17 @@ class IncusHost(NetBoxModel):
     def get_https_urls(self):
         """
         Returns the list of all configured HTTPS URLs.
-        Handles both single URL and multi-URL fields.
         
         Returns:
             list: List of URLs to try
         """
         urls = []
         
-        # Add single URL if configured
-        if self.https_url:
-            urls.append(self.https_url.strip())
-        
-        # Add multi-URLs
         if self.https_urls:
             for line in self.https_urls.strip().split('\n'):
                 line = line.strip()
                 if not line or line.startswith('#'):
                     continue
-                
                 urls.append(line)
         
         # Remove duplicates while preserving order
@@ -258,65 +242,3 @@ class IncusHost(NetBoxModel):
         self.last_working_url = ''
         self.last_working_url_checked = None
         self.save(update_fields=['last_working_url', 'last_working_url_checked'])
-
-    # ========== Validation ==========
-
-    def clean(self):
-        """Model validation."""
-        super().clean()
-        
-        if self.connection_type == ConnectionTypeChoices.UNIX_SOCKET:
-            if not self.socket_path:
-                raise ValidationError({
-                    'socket_path': "Socket path is required."
-                })
-                
-        elif self.connection_type == ConnectionTypeChoices.HTTPS:
-            # Need at least one URL (single or multi)
-            if not self.https_url and not self.https_urls:
-                raise ValidationError({
-                    'https_url': "At least one HTTPS URL is required (single or multiple)."
-                })
-            if not self.client_cert_path:
-                raise ValidationError({
-                    'client_cert_path': "Client certificate path is required."
-                })
-            if not self.client_key_path:
-                raise ValidationError({
-                    'client_key_path': "Private key path is required."
-                })
-            
-            # Check permissions of sensitive files
-            for path_field in ['client_key_path']:
-                path = getattr(self, path_field)
-                if path:
-                    try:
-                        validate_file_permissions(path)
-                    except ValidationError as e:
-                        raise ValidationError({path_field: e.message})
-
-    def check_certificates(self):
-        """
-        Checks that certificates are accessible and valid.
-        Returns (success, message).
-        """
-        if self.connection_type != ConnectionTypeChoices.HTTPS:
-            return True, "Unix Socket Connection (no certificates)"
-        
-        errors = []
-        
-        for field, label in [
-            ('client_cert_path', 'Client Certificate'),
-            ('client_key_path', 'Private Key'),
-        ]:
-            path = getattr(self, field)
-            if not path:
-                errors.append(f"{label}: path not defined")
-            elif not os.path.isfile(path):
-                errors.append(f"{label}: file not found ({path})")
-            elif not os.access(path, os.R_OK):
-                errors.append(f"{label}: file not readable ({path})")
-        
-        if errors:
-            return False, "; ".join(errors)
-        return True, "Certificates OK"

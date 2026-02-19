@@ -20,7 +20,6 @@ class IncusHostSerializer(NetBoxModelSerializer):
             'name',
             'connection_type',
             'socket_path',
-            'https_url',
             'https_urls',
             'last_working_url',
             'last_working_url_checked',

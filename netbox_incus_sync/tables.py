@@ -45,6 +45,12 @@ class IncusHostTable(NetBoxTable):
         verbose_name='Cluster'
     )
 
+    actions = tables.Column(
+        verbose_name='',
+        empty_values=(),
+        orderable=False
+    )
+
     class Meta(NetBoxTable.Meta):
         model = IncusHost
         fields = (
@@ -56,6 +62,7 @@ class IncusHostTable(NetBoxTable):
             'cache_status',
             'enabled',
             'default_cluster',
+            'actions',
             'tags',
         )
         default_columns = (
@@ -67,6 +74,7 @@ class IncusHostTable(NetBoxTable):
             'cache_status',
             'enabled',
             'default_cluster',
+            'actions',
         )
 
     def render_url_count(self, record):
@@ -102,3 +110,19 @@ class IncusHostTable(NetBoxTable):
                 '<span class="badge bg-warning text-dark" title="{}">expired</span>',
                 record.last_working_url
             )
+
+    def render_actions(self, record):
+        """Render a sync button for each host."""
+        if not record.enabled:
+            return format_html(
+                '<span class="badge bg-secondary text-dark" title="Host disabled">'
+                '<i class="mdi mdi-sync-off"></i>'
+                '</span>'
+            )
+        return format_html(
+            '<a href="/plugins/incus-sync/sync/host/{}/?next=/plugins/incus-sync/hosts/" '
+            'class="btn btn-sm btn-outline-blue" title="Sync this host">'
+            '<i class="mdi mdi-sync"></i>'
+            '</a>',
+            record.pk
+        )

@@ -149,11 +149,7 @@ class EventSyncService:
         now_str = timezone.now().strftime('%Y-%m-%d %H:%M:%S')
 
         comments = (
-            f"{JOURNAL_PREFIX} **{log_file}**\n"
-            f"\n"
-            f"- **Host**: `{host.name}`\n"
-            f"- **Instance**: `{vm.name}`\n"
-            f"- **Synced at**: {now_str}\n"
+            f"## **{log_file}**\n"
             f"\n"
             f"```\n"
             f"{content.rstrip()}\n"
