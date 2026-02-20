@@ -176,7 +176,7 @@ class SyncIncusJob(JobRunner):
                 projects = [p for p in projects if p.get('name') in host.sync_projects]
                 self.logger.info(f"  Filtered to {len(projects)} project(s): {host.sync_projects}")
             
-            tenant_result = tenant_service.sync_all_projects(projects)
+            tenant_result = tenant_service.sync_all_projects(projects, host=host)
             tenant_map = tenant_result['tenant_map']
             stats['tenants_created'] += tenant_result['tenants_created']
             stats['tenants_removed'] += tenant_result['tenants_removed']

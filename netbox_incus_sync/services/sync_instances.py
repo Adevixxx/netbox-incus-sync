@@ -63,15 +63,9 @@ class InstanceSyncService:
         return self._cluster_type
     
     def resolve_cluster(self, host, cluster_info=None):
-        """Determines the cluster to use for a host's VMs."""
-        if cluster_info and cluster_info.get('enabled'):
-            cluster_name = host.name
-            return self._get_or_create_cluster(cluster_name, host)
-        
-        if host.default_cluster:
-            return host.default_cluster
-        
-        return None
+        """Determines the cluster to use for a host's VMs. Now always creates one per host."""
+        cluster_name = host.name
+        return self._get_or_create_cluster(cluster_name, host)
     
     def _get_or_create_cluster(self, cluster_name, host):
         cluster, created = Cluster.objects.get_or_create(

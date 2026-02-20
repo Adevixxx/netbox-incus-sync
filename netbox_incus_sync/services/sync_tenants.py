@@ -18,8 +18,8 @@ from extras.models import Tag
 
 logger = logging.getLogger(__name__)
 
-# Slug for the auto-created TenantGroup that holds all Incus project tenants
-INCUS_TENANT_GROUP_SLUG = 'incus-projects'
+# Base slug for the auto-created TenantGroup that holds all Incus project tenants
+INCUS_TENANT_GROUP_SLUG_PREFIX = 'incus-projects'
 
 # Tag applied to tenants managed by this service
 INCUS_TENANT_TAG_SLUG = 'incus-managed'
@@ -55,20 +55,21 @@ class TenantSyncService:
 
     # ========== Lazy properties ==========
 
-    @property
-    def tenant_group(self):
-        """Gets or creates the 'Incus Projects' TenantGroup."""
-        if self._tenant_group is None:
-            self._tenant_group, created = TenantGroup.objects.get_or_create(
-                slug=INCUS_TENANT_GROUP_SLUG,
-                defaults={
-                    'name': 'Incus Projects',
-                    'description': 'Auto-created group for Incus project tenants',
-                }
-            )
-            if created:
-                self.log('info', '  TenantGroup "Incus Projects" created')
-        return self._tenant_group
+    def get_tenant_group(self, host):
+        """Gets or creates the TenantGroup for a specific host's projects."""
+        slug = f"{INCUS_TENANT_GROUP_SLUG_PREFIX}-{host.name}"
+        name = host.name
+        
+        tenant_group, created = TenantGroup.objects.get_or_create(
+            slug=slug,
+            defaults={
+                'name': name,
+                'description': f'Auto-created group for Incus host {host.name} project tenants',
+            }
+        )
+        if created:
+            self.log('info', f'  TenantGroup "{name}" created')
+        return tenant_group
 
     @property
     def managed_tag(self):
@@ -82,13 +83,14 @@ class TenantSyncService:
 
     # ========== Public API ==========
 
-    def sync_project_as_tenant(self, project_data):
+    def sync_project_as_tenant(self, project_data, host):
         """
         Synchronizes a single Incus project to a NetBox Tenant.
 
         Args:
             project_data: dict from Incus API (GET /1.0/projects/<n>)
                           Must contain 'name', 'description', 'config'.
+            host: IncusHost instance to scope the tenant to.
 
         Returns:
             tuple: (Tenant, created: bool)
@@ -101,8 +103,8 @@ class TenantSyncService:
             self.log('warning', '  Skipping project with empty name')
             return None, False
 
-        # Build the tenant slug: "incus-<project_name>"
-        tenant_slug = f'incus-{project_name}'
+        # Build the tenant slug: "incus-<host.name>-<project_name>"
+        tenant_slug = f'incus-{host.name}-{project_name}'
 
         # Extract feature flags
         features = {}
@@ -120,12 +122,14 @@ class TenantSyncService:
         if isolated:
             tenant_description += f' [isolated: {", ".join(isolated)}]'
 
+        tenant_group = self.get_tenant_group(host)
+
         # Create or update Tenant
         tenant, created = Tenant.objects.get_or_create(
             slug=tenant_slug,
             defaults={
-                'name': f'Incus: {project_name}',
-                'group': self.tenant_group,
+                'name': project_name,
+                'group': tenant_group,
                 'description': tenant_description,
             }
         )
@@ -135,8 +139,8 @@ class TenantSyncService:
             if tenant.description != tenant_description:
                 tenant.description = tenant_description
                 updated = True
-            if tenant.group != self.tenant_group:
-                tenant.group = self.tenant_group
+            if tenant.group != tenant_group:
+                tenant.group = tenant_group
                 updated = True
 
         # Store features in custom_field_data
@@ -165,12 +169,13 @@ class TenantSyncService:
 
         return tenant, created
 
-    def sync_all_projects(self, projects_data):
+    def sync_all_projects(self, projects_data, host):
         """
         Synchronizes all Incus projects to NetBox Tenants.
 
         Args:
             projects_data: list of project dicts from Incus API
+            host: IncusHost instance
 
         Returns:
             dict: {
@@ -195,7 +200,7 @@ class TenantSyncService:
                 continue
 
             project_names.add(project_name)
-            tenant, created = self.sync_project_as_tenant(project_data)
+            tenant, created = self.sync_project_as_tenant(project_data, host)
 
             if tenant:
                 stats['tenant_map'][project_name] = tenant
@@ -203,7 +208,7 @@ class TenantSyncService:
                     stats['tenants_created'] += 1
 
         # Clean up tenants for deleted projects
-        removed = self._cleanup_stale_tenants(project_names)
+        removed = self._cleanup_stale_tenants(project_names, host)
         stats['tenants_removed'] = removed
 
         self.log('info',
@@ -231,12 +236,13 @@ class TenantSyncService:
 
     # ========== Internal ==========
 
-    def _cleanup_stale_tenants(self, active_project_names):
+    def _cleanup_stale_tenants(self, active_project_names, host):
         """
         Removes tenants for projects that no longer exist in Incus.
 
         Args:
             active_project_names: set of current project names
+            host: IncusHost instance
 
         Returns:
             int: Number of tenants removed
@@ -244,8 +250,9 @@ class TenantSyncService:
         removed = 0
 
         # Find all tenants in our group that are tagged as managed
+        tenant_group = self.get_tenant_group(host)
         managed_tenants = Tenant.objects.filter(
-            group=self.tenant_group,
+            group=tenant_group,
             tags=self.managed_tag,
         )
 
