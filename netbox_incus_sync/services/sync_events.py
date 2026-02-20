@@ -35,7 +35,7 @@ class EventSyncService:
             self._vm_content_type = ContentType.objects.get_for_model(VirtualMachine)
         return self._vm_content_type
 
-    def sync_events(self, host, client, since_minutes=60):
+    def sync_events(self, host, client):
         """
         Synchronizes instance log files from an Incus host as Journal Entries.
 
@@ -46,7 +46,6 @@ class EventSyncService:
         Args:
             host: IncusHost instance
             client: IncusClient instance
-            since_minutes: Unused, kept for API compatibility
 
         Returns:
             int: Number of log entries created
@@ -73,10 +72,6 @@ class EventSyncService:
 
         return logs_synced
 
-    def sync_lifecycle_events(self, host, client, since_minutes=60):
-        """Alias kept for backward compatibility."""
-        return self.sync_events(host, client, since_minutes)
-
     def _sync_instance_logs(self, vm, host, client):
         """
         Fetches and stores log files for a single instance.
@@ -93,14 +88,12 @@ class EventSyncService:
         Returns:
             int: Number of journal entries created
         """
-        # Get available log files from the API
         log_files = client.get_instance_logs(vm.name)
 
         if not log_files:
             self.log('debug', f"    {vm.name}: no log files available")
             return 0
 
-        # Delete previous log entries for this VM
         self._delete_old_log_entries(vm)
 
         entries_created = 0
@@ -119,9 +112,7 @@ class EventSyncService:
         return entries_created
 
     def _delete_old_log_entries(self, vm):
-        """
-        Deletes all previous log journal entries created by this service for a VM.
-        """
+        """Deletes all previous log journal entries created by this service for a VM."""
         deleted_count, _ = JournalEntry.objects.filter(
             assigned_object_type=self.vm_content_type,
             assigned_object_id=vm.pk,
@@ -138,45 +129,23 @@ class EventSyncService:
         Args:
             vm: VirtualMachine instance
             host: IncusHost instance
-            log_file: Log filename (e.g. 'qemu.log', 'lxc.log')
-            content: Raw log file content
+            log_file: Log filename (e.g. 'lxc.log')
+            content: Log file text content
         """
-        # Truncate very large logs to keep last 50KB
-        max_size = 50_000
-        if len(content) > max_size:
-            content = f"... (truncated, showing last {max_size} bytes) ...\n" + content[-max_size:]
-
-        now_str = timezone.now().strftime('%Y-%m-%d %H:%M:%S')
+        MAX_CONTENT_LENGTH = 10000
+        if len(content) > MAX_CONTENT_LENGTH:
+            content = content[-MAX_CONTENT_LENGTH:]
+            content = f"[... truncated to last {MAX_CONTENT_LENGTH} chars ...]\n{content}"
 
         comments = (
-            f"## **{log_file}**\n"
-            f"\n"
-            f"```\n"
-            f"{content.rstrip()}\n"
-            f"```"
+            f"## {log_file}\n"
+            f"---\n"
+            f"```\n{content}\n```"
         )
 
         JournalEntry.objects.create(
             assigned_object_type=self.vm_content_type,
             assigned_object_id=vm.pk,
             kind=JournalEntryKindChoices.KIND_INFO,
-            comments=comments,
-        )
-
-    def create_sync_journal_entry(self, vm, host, action="synced"):
-        """Creates a journal entry for sync lifecycle actions (create/update/remove)."""
-        kind_map = {
-            'synced': JournalEntryKindChoices.KIND_INFO,
-            'created': JournalEntryKindChoices.KIND_SUCCESS,
-            'updated': JournalEntryKindChoices.KIND_INFO,
-            'removed': JournalEntryKindChoices.KIND_WARNING,
-        }
-
-        comments = f"**Instance {action}** by Incus Sync\n\n- **Host**: `{host.name}`"
-
-        return JournalEntry.objects.create(
-            assigned_object_type=self.vm_content_type,
-            assigned_object_id=vm.pk,
-            kind=kind_map.get(action, JournalEntryKindChoices.KIND_INFO),
             comments=comments,
         )

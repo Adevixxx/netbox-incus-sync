@@ -17,6 +17,18 @@ TAGS_DEFINITION = [
     ('incus-managed', 'Managed by Incus Sync', TAG_COLORS['incus-managed']),
 ]
 
+# Config keys to exclude from sanitized output
+EXCLUDE_CONFIG_PREFIXES = [
+    'volatile.',
+    'image.',
+]
+
+EXCLUDE_CONFIG_EXACT = [
+    'user.password',
+    'user.access_key',
+    'user.secret_key',
+]
+
 
 def ensure_tags_exist(logger=None):
     """Creates necessary tags if they don't exist."""
@@ -38,7 +50,7 @@ def parse_memory(value):
         return None
     try:
         value = str(value).upper().strip()
-        
+
         if value.endswith('GIB'):
             return int(float(value[:-3]) * 1024)
         elif value.endswith('GB'):
@@ -58,7 +70,7 @@ def parse_memory(value):
 
 
 def parse_size(value):
-    """Converts an Incus disk size to MB."""
+    """Converts an Incus disk size to MB (alias for parse_memory)."""
     return parse_memory(value)
 
 
@@ -67,3 +79,92 @@ def get_instance_type_tag(instance_type):
     if instance_type == 'container':
         return 'incus-container'
     return 'incus-vm'
+
+
+# ========== Shared sanitization/extraction helpers ==========
+
+def sanitize_config(config):
+    """
+    Sanitizes Incus configuration by removing sensitive or volatile data.
+
+    Args:
+        config: Raw Incus config dict
+
+    Returns:
+        dict: Sanitized config
+    """
+    if not config:
+        return {}
+
+    sanitized = {}
+    for key, value in config.items():
+        if any(key.startswith(prefix) for prefix in EXCLUDE_CONFIG_PREFIXES):
+            continue
+        if key in EXCLUDE_CONFIG_EXACT:
+            continue
+        sanitized[key] = value
+
+    return sanitized
+
+
+def sanitize_devices(devices):
+    """
+    Sanitizes Incus devices configuration by removing user.* keys.
+
+    Args:
+        devices: Raw Incus devices dict
+
+    Returns:
+        dict: Sanitized devices
+    """
+    if not devices:
+        return {}
+
+    sanitized = {}
+    for name, device in devices.items():
+        sanitized_device = {
+            key: value for key, value in device.items()
+            if not key.startswith('user.')
+        }
+        sanitized[name] = sanitized_device
+
+    return sanitized
+
+
+def extract_limits(config):
+    """Extracts resource limits from an Incus config dict."""
+    limits = {}
+
+    if config.get('limits.cpu'):
+        limits['cpu'] = config['limits.cpu']
+    if config.get('limits.memory'):
+        limits['memory'] = config['limits.memory']
+
+    for key in ['limits.disk.priority', 'limits.disk.read', 'limits.disk.write',
+                 'limits.network.priority', 'limits.network.egress', 'limits.network.ingress',
+                 'limits.processes']:
+        if key in config:
+            limits[key.replace('limits.', '')] = config[key]
+
+    return limits if limits else None
+
+
+def extract_security(config):
+    """Extracts security-related settings from an Incus config dict."""
+    security = {}
+    security_keys = [
+        'security.nesting', 'security.privileged',
+        'security.protection.delete', 'security.protection.shift',
+        'security.idmap.isolated', 'security.secureboot',
+        'security.devlxd', 'security.devlxd.images',
+    ]
+
+    for key in security_keys:
+        if key in config:
+            short_key = key.replace('security.', '')
+            value = config[key]
+            if value in ('true', 'false'):
+                value = value == 'true'
+            security[short_key] = value
+
+    return security if security else None

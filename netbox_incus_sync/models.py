@@ -19,18 +19,6 @@ def validate_file_exists(path):
         raise ValidationError(f"File is not readable: {path}")
 
 
-def validate_file_permissions(path):
-    """Validates that the file has secure permissions (600 or 400)."""
-    if not path or not os.path.isfile(path):
-        return
-    mode = os.stat(path).st_mode & 0o777
-    if mode not in (0o600, 0o400, 0o640, 0o440):
-        raise ValidationError(
-            f"File permissions too permissive ({oct(mode)}). "
-            f"Use chmod 600 {path}"
-        )
-
-
 class IncusHost(NetBoxModel):
     """
     Model representing an Incus host to synchronize with NetBox.
@@ -63,38 +51,36 @@ class IncusHost(NetBoxModel):
     )
 
     # ========== HTTPS Connection ==========
-    # URLs (one per line, supports failover)
     https_urls = models.TextField(
         blank=True,
         verbose_name='HTTPS URLs',
         help_text=(
-            "Server URLs, one per line. Lines starting with # are ignored.\n"
+            "Server URLs, one per line. "
+            "Lines starting with # are ignored.\n"
             "The system tests each URL in order until one works, then caches the result.\n"
             "Example:\nhttps://incus1.example.com:8443\nhttps://incus2.example.com:8443"
         )
     )
-    
-    # URL caching for performance
+
     last_working_url = models.URLField(
         max_length=255,
         blank=True,
         verbose_name='Last Working URL',
         help_text="Automatically updated when a connection succeeds"
     )
-    
+
     last_working_url_checked = models.DateTimeField(
         null=True,
         blank=True,
         verbose_name='Last URL Check'
     )
-    
+
     url_cache_ttl = models.IntegerField(
         default=300,
         verbose_name='URL Cache TTL (seconds)',
         help_text="How long to use the cached working URL before re-testing (default: 300s = 5min)"
     )
 
-    # Paths to certificate files (NOT the content!)
     client_cert_path = models.CharField(
         max_length=500,
         blank=True,
@@ -171,7 +157,6 @@ class IncusHost(NetBoxModel):
     def connection_url(self):
         """Returns connection URL based on type (for display purposes)."""
         if self.connection_type == ConnectionTypeChoices.HTTPS:
-            # Show cached URL if available, otherwise first configured URL
             if self.last_working_url:
                 return f"{self.last_working_url} (cached)"
             urls = self.get_https_urls()
@@ -183,56 +168,33 @@ class IncusHost(NetBoxModel):
         return self.socket_path
 
     # ========== Multi-URL Methods ==========
-    
+
     def get_https_urls(self):
-        """
-        Returns the list of all configured HTTPS URLs.
-        
-        Returns:
-            list: List of URLs to try
-        """
-        urls = []
-        
-        if self.https_urls:
-            for line in self.https_urls.strip().split('\n'):
-                line = line.strip()
-                if not line or line.startswith('#'):
-                    continue
-                urls.append(line)
-        
-        # Remove duplicates while preserving order
+        """Returns the list of all configured HTTPS URLs (deduplicated, ordered)."""
+        if not self.https_urls:
+            return []
+
         seen = set()
         unique_urls = []
-        for url in urls:
-            if url not in seen:
-                seen.add(url)
-                unique_urls.append(url)
-        
+        for line in self.https_urls.strip().split('\n'):
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+            if line not in seen:
+                seen.add(line)
+                unique_urls.append(line)
+
         return unique_urls
 
     def is_url_cache_valid(self):
-        """
-        Checks if the cached working URL is still valid.
-        
-        Returns:
-            bool: True if cache is valid and should be used
-        """
-        if not self.last_working_url:
+        """Checks if the cached working URL is still valid."""
+        if not self.last_working_url or not self.last_working_url_checked:
             return False
-        
-        if not self.last_working_url_checked:
-            return False
-        
         age = timezone.now() - self.last_working_url_checked
         return age.total_seconds() < self.url_cache_ttl
 
     def update_working_url(self, url):
-        """
-        Updates the cached working URL.
-        
-        Args:
-            url: The URL that successfully connected
-        """
+        """Updates the cached working URL."""
         self.last_working_url = url
         self.last_working_url_checked = timezone.now()
         self.save(update_fields=['last_working_url', 'last_working_url_checked'])
