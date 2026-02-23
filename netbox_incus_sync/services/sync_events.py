@@ -138,6 +138,7 @@ class EventSyncService:
             content = f"[... truncated to last {MAX_CONTENT_LENGTH} chars ...]\n{content}"
 
         comments = (
+            f"{JOURNAL_PREFIX}\n"
             f"## {log_file}\n"
             f"---\n"
             f"```\n{content}\n```"
