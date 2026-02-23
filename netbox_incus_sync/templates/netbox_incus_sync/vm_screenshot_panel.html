@@ -1,0 +1,122 @@
+{% load plugins %}
+
+{# ============================================ #}
+{# Incus VGA Screenshot Panel #}
+{# Injected on VirtualMachine detail page via #}
+{# PluginTemplateExtension #}
+{# ============================================ #}
+
+<div class="card">
+    <h5 class="card-header">
+        <i class="mdi mdi-monitor-screenshot"></i> Incus VGA Screenshot
+    </h5>
+    <div class="card-body">
+        {% if not is_vm %}
+        {# Container — no VGA console #}
+        <div class="text-center text-body-secondary py-3">
+            <i class="mdi mdi-information-outline"></i>
+            VGA screenshots are only available for virtual machines.
+        </div>
+        {% else %}
+        {# Screenshot display #}
+        <div class="text-center" id="incus-screenshot-display">
+            {% if screenshot %}
+            <a href="{{ screenshot.image.url }}" target="_blank" title="Click to view full size">
+                <img src="{{ screenshot.image.url }}" class="img-fluid img-thumbnail rounded" style="max-height: 300px;"
+                    alt="VGA Screenshot — {{ vm.name }}" id="incus-screenshot-img">
+            </a>
+            <br>
+            <small class="text-body-secondary" id="incus-screenshot-timestamp">
+                Captured {{ screenshot.created|timesince }} ago
+            </small>
+            {% else %}
+            <div class="text-body-secondary py-3" id="incus-screenshot-placeholder">
+                <i class="mdi mdi-monitor-off mdi-48px"></i>
+                <p class="mt-2 mb-0">No screenshot captured yet</p>
+            </div>
+            {% endif %}
+        </div>
+
+        {# Capture / Update button #}
+        <div class="text-center mt-3">
+            <button type="button" class="btn btn-sm btn-outline-primary" id="incus-screenshot-btn"
+                title="Capture VGA console screenshot">
+                <i class="mdi mdi-camera"></i>
+                {% if screenshot %}Update Screenshot{% else %}Capture Screenshot{% endif %}
+            </button>
+        </div>
+
+        {# Inline JS for the button (self-contained) #}
+        <script>
+            (function () {
+                var btn = document.getElementById('incus-screenshot-btn');
+                if (!btn) return;
+
+                var actionUrl = '{% url "plugins:netbox_incus_sync:vm_screenshot" pk=vm.pk %}';
+
+                function getCsrfToken() {
+                    var input = document.querySelector('input[name="csrfmiddlewaretoken"]');
+                    if (input) return input.value;
+                    var cookies = document.cookie.split(';');
+                    for (var i = 0; i < cookies.length; i++) {
+                        var c = cookies[i].trim();
+                        if (c.substring(0, 10) === 'csrftoken=') {
+                            return decodeURIComponent(c.substring(10));
+                        }
+                    }
+                    return null;
+                }
+
+                btn.addEventListener('click', function (e) {
+                    e.preventDefault();
+                    var originalHtml = btn.innerHTML;
+                    btn.innerHTML = '<i class="mdi mdi-loading mdi-spin"></i> Capturing...';
+                    btn.disabled = true;
+
+                    fetch(actionUrl, {
+                        method: 'POST',
+                        headers: {
+                            'X-Requested-With': 'XMLHttpRequest',
+                            'X-CSRFToken': getCsrfToken()
+                        }
+                    })
+                        .then(function (response) {
+                            if (!response.ok && response.status === 403) {
+                                throw new Error('CSRF error. Try refreshing the page.');
+                            }
+                            var ct = response.headers.get('content-type');
+                            if (ct && ct.indexOf('application/json') !== -1) {
+                                return response.json();
+                            }
+                            throw new Error('Unexpected response (status ' + response.status + ')');
+                        })
+                        .then(function (data) {
+                            if (data.success && data.screenshot_url) {
+                                var display = document.getElementById('incus-screenshot-display');
+                                display.innerHTML =
+                                    '<a href="' + data.screenshot_url + '" target="_blank" title="Click to view full size">' +
+                                    '<img src="' + data.screenshot_url + '?t=' + Date.now() + '" ' +
+                                    'class="img-fluid img-thumbnail rounded" style="max-height: 300px;" ' +
+                                    'alt="VGA Screenshot" id="incus-screenshot-img">' +
+                                    '</a><br>' +
+                                    '<small class="text-body-secondary">Captured just now</small>';
+
+                                btn.innerHTML = '<i class="mdi mdi-camera"></i> Update Screenshot';
+                                btn.disabled = false;
+                            } else {
+                                alert('\u274c ' + (data.message || 'Unknown error'));
+                                btn.innerHTML = originalHtml;
+                                btn.disabled = false;
+                            }
+                        })
+                        .catch(function (error) {
+                            alert('\u274c ' + error);
+                            btn.innerHTML = originalHtml;
+                            btn.disabled = false;
+                        });
+                });
+            })();
+        </script>
+        {% endif %}
+    </div>
+</div>
