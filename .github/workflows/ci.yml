@@ -12,7 +12,7 @@ jobs:
     strategy:
       matrix:
         python-version: ["3.12"]
-        netbox-version: ["4.2"]
+        netbox-version: ["4.5.1"]
 
     services:
       postgres:
@@ -50,7 +50,7 @@ jobs:
 
       - name: Clone NetBox
         run: |
-          git clone --depth 1 --branch v${{ matrix.netbox-version }}.0 \
+          git clone --depth 1 --branch v${{ matrix.netbox-version }} \
             https://github.com/netbox-community/netbox.git /opt/netbox
 
       - name: Configure NetBox
@@ -76,7 +76,7 @@ jobs:
                   'DATABASE': 1,
               },
           }
-          SECRET_KEY = 'ci-test-secret-key-not-for-production-use-only'
+          SECRET_KEY = 'ci-test-secret-key-not-for-production-use-only-must-be-at-least-fifty-characters-long!'
           PLUGINS = ['netbox_incus_sync']
           EOF
 
@@ -88,6 +88,8 @@ jobs:
       - name: Install dependencies
         run: |
           cd /opt/netbox
+          python -m pip install --upgrade pip wheel
+          sed -i 's/psycopg\[c/psycopg\[binary/g' requirements.txt
           pip install -r requirements.txt
           pip install -e ${{ github.workspace }}
 
