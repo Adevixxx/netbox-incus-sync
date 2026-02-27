@@ -8,6 +8,9 @@ urlpatterns = [
     # IncusHost URLs
     path('hosts/', views.IncusHostListView.as_view(), name='incushost_list'),
     path('hosts/add/', views.IncusHostEditView.as_view(), name='incushost_add'),
+    path('hosts/edit/', views.IncusHostBulkEditView.as_view(), name='incushost_bulk_edit'),
+    path('hosts/import/', views.IncusHostBulkImportView.as_view(), name='incushost_bulk_import'),
+    path('hosts/delete/', views.IncusHostBulkDeleteView.as_view(), name='incushost_bulk_delete'),
     path('hosts/<int:pk>/', include(get_model_urls('netbox_incus_sync', 'incushost'))),
     
     # Synchronization

@@ -15,6 +15,8 @@ from .forms import IncusHostForm
 from .tables import IncusHostTable
 from .jobs import SyncIncusJob, SyncEventsJob
 from .incus_client import IncusClient
+from .forms import IncusHostForm, IncusHostFilterForm, IncusHostBulkEditForm, IncusHostImportForm
+from .filtersets import IncusHostFilterSet
 
 
 # ============================================
@@ -24,6 +26,22 @@ from .incus_client import IncusClient
 class IncusHostListView(generic.ObjectListView):
     queryset = IncusHost.objects.all()
     table = IncusHostTable
+    filterset = IncusHostFilterSet
+    filterset_form = IncusHostFilterForm        # ← sidebar filtres
+
+class IncusHostBulkDeleteView(generic.BulkDeleteView):
+    queryset = IncusHost.objects.all()
+    table = IncusHostTable
+
+class IncusHostBulkEditView(generic.BulkEditView):
+    queryset = IncusHost.objects.all()
+    filterset = IncusHostFilterSet
+    table = IncusHostTable
+    form = IncusHostBulkEditForm
+
+class IncusHostBulkImportView(generic.BulkImportView):
+    queryset = IncusHost.objects.all()
+    model_form = IncusHostImportForm
 
 
 @register_model_view(IncusHost)

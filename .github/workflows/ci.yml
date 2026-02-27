@@ -1,0 +1,97 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.12"]
+        netbox-version: ["4.2"]
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: netbox
+          POSTGRES_PASSWORD: netbox
+          POSTGRES_DB: netbox
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U netbox"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    steps:
+      - name: Checkout plugin
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Clone NetBox
+        run: |
+          git clone --depth 1 --branch v${{ matrix.netbox-version }}.0 \
+            https://github.com/netbox-community/netbox.git /opt/netbox
+
+      - name: Configure NetBox
+        run: |
+          cat > /opt/netbox/netbox/netbox/configuration.py << 'EOF'
+          ALLOWED_HOSTS = ['*']
+          DATABASE = {
+              'NAME': 'netbox',
+              'USER': 'netbox',
+              'PASSWORD': 'netbox',
+              'HOST': 'localhost',
+              'PORT': '5432',
+          }
+          REDIS = {
+              'tasks': {
+                  'HOST': 'localhost',
+                  'PORT': 6379,
+                  'DATABASE': 0,
+              },
+              'caching': {
+                  'HOST': 'localhost',
+                  'PORT': 6379,
+                  'DATABASE': 1,
+              },
+          }
+          SECRET_KEY = 'ci-test-secret-key-not-for-production-use-only'
+          PLUGINS = ['netbox_incus_sync']
+          EOF
+
+      - name: Install dependencies
+        run: |
+          cd /opt/netbox
+          pip install -r requirements.txt
+          pip install -e ${{ github.workspace }}
+
+      - name: Run migrations
+        run: |
+          cd /opt/netbox/netbox
+          python manage.py migrate --no-input
+
+      - name: Run tests
+        run: |
+          cd /opt/netbox/netbox
+          python manage.py test netbox_incus_sync.tests -v2 --no-input
