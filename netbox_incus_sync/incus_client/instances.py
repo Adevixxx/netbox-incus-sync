@@ -23,29 +23,29 @@ class InstancesApiMixin:
         Returns:
             List of instances
         """
-        qs = self._build_project_query(f'recursion={recursion}', project)
-        data = self._request('GET', f'/1.0/instances{qs}')
+        qs = self._build_project_query(f"recursion={recursion}", project)
+        data = self._request("GET", f"/1.0/instances{qs}")
 
-        if data.get('type') != 'sync':
+        if data.get("type") != "sync":
             logger.error(f"Unexpected Incus response type: {data.get('type')}")
             return []
 
-        return data.get('metadata', [])
+        return data.get("metadata", [])
 
     def get_instance(self, name, project=None):
         """Retrieves details of a specific instance."""
         qs = self._build_project_query(project=project)
-        data = self._request('GET', f'/1.0/instances/{name}{qs}')
-        if data.get('type') == 'sync':
-            return data.get('metadata')
+        data = self._request("GET", f"/1.0/instances/{name}{qs}")
+        if data.get("type") == "sync":
+            return data.get("metadata")
         return None
 
     def get_instance_state(self, name, project=None):
         """Retrieves the state of an instance (CPU, memory, network, etc.)."""
         qs = self._build_project_query(project=project)
-        data = self._request('GET', f'/1.0/instances/{name}/state{qs}')
-        if data.get('type') == 'sync':
-            return data.get('metadata')
+        data = self._request("GET", f"/1.0/instances/{name}/state{qs}")
+        if data.get("type") == "sync":
+            return data.get("metadata")
         return None
 
     def get_instance_logs(self, name, project=None):
@@ -61,10 +61,10 @@ class InstancesApiMixin:
         """
         try:
             qs = self._build_project_query(project=project)
-            data = self._request('GET', f'/1.0/instances/{name}/logs{qs}')
-            if data.get('type') == 'sync':
-                logs = data.get('metadata', [])
-                return [log.split('/')[-1] for log in logs]
+            data = self._request("GET", f"/1.0/instances/{name}/logs{qs}")
+            if data.get("type") == "sync":
+                logs = data.get("metadata", [])
+                return [log.split("/")[-1] for log in logs]
         except Exception as e:
             logger.debug(f"Unable to retrieve logs for {name}: {e}")
         return []
@@ -107,23 +107,27 @@ class InstancesApiMixin:
         Returns:
             bytes: PNG image data, or None if unavailable
         """
-        qs = self._build_project_query('type=vga', project)
+        qs = self._build_project_query("type=vga", project)
         url = f"{self.base_url}/1.0/instances/{name}/console{qs}"
 
         try:
             response = self.session.get(url, timeout=15)
             response.raise_for_status()
 
-            content_type = response.headers.get('Content-Type', '')
-            if 'image' in content_type or response.content[:4] == b'\x89PNG':
+            content_type = response.headers.get("Content-Type", "")
+            if "image" in content_type or response.content[:4] == b"\x89PNG":
                 return response.content
 
-            logger.warning(f"Screenshot for {name}: unexpected content type {content_type}")
+            logger.warning(
+                f"Screenshot for {name}: unexpected content type {content_type}"
+            )
             return None
 
         except requests.exceptions.HTTPError as e:
             if e.response is not None and e.response.status_code == 400:
-                logger.debug(f"Screenshot not available for {name} (possibly a container or stopped VM)")
+                logger.debug(
+                    f"Screenshot not available for {name} (possibly a container or stopped VM)"
+                )
             else:
                 logger.warning(f"HTTP error getting screenshot for {name}: {e}")
             return None

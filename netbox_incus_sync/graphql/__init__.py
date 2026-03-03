@@ -1,3 +1,3 @@
 from .schema import schema
 
-__all__ = ['schema']
+__all__ = ["schema"]

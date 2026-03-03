@@ -21,9 +21,9 @@ class ProjectsApiMixin:
             list: List of project dicts with name, description, config, etc.
         """
         try:
-            data = self._request('GET', f'/1.0/projects?recursion={recursion}')
-            if data.get('type') == 'sync':
-                return data.get('metadata', [])
+            data = self._request("GET", f"/1.0/projects?recursion={recursion}")
+            if data.get("type") == "sync":
+                return data.get("metadata", [])
         except Exception as e:
             logger.error(f"Unable to retrieve projects: {e}")
         return []
@@ -39,9 +39,9 @@ class ProjectsApiMixin:
             dict: Project details including config (features.*), or None
         """
         try:
-            data = self._request('GET', f'/1.0/projects/{name}')
-            if data.get('type') == 'sync':
-                return data.get('metadata')
+            data = self._request("GET", f"/1.0/projects/{name}")
+            if data.get("type") == "sync":
+                return data.get("metadata")
         except Exception as e:
             logger.debug(f"Project {name} not found: {e}")
         return None

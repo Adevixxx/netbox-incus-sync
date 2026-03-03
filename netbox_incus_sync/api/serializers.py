@@ -5,7 +5,7 @@ from ..models import IncusHost
 
 class IncusHostSerializer(NetBoxModelSerializer):
     url = serializers.HyperlinkedIdentityField(
-        view_name='plugins-api:netbox_incus_sync-api:incushost-detail'
+        view_name="plugins-api:netbox_incus_sync-api:incushost-detail"
     )
     connection_url = serializers.ReadOnlyField()
     configured_urls = serializers.SerializerMethodField()
@@ -14,41 +14,41 @@ class IncusHostSerializer(NetBoxModelSerializer):
     class Meta:
         model = IncusHost
         fields = (
-            'id',
-            'url',
-            'display',
-            'name',
-            'connection_type',
-            'socket_path',
-            'https_urls',
-            'last_working_url',
-            'last_working_url_checked',
-            'url_cache_ttl',
-            'url_cache_valid',
-            'configured_urls',
-            'client_cert_path',
-            'client_key_path',
-            'ca_cert_path',
-            'verify_ssl',
-            'enabled',
-            'default_cluster',
-            'connection_url',
-            'tags',
-            'custom_fields',
-            'created',
-            'last_updated',
+            "id",
+            "url",
+            "display",
+            "name",
+            "connection_type",
+            "socket_path",
+            "https_urls",
+            "last_working_url",
+            "last_working_url_checked",
+            "url_cache_ttl",
+            "url_cache_valid",
+            "configured_urls",
+            "client_cert_path",
+            "client_key_path",
+            "ca_cert_path",
+            "verify_ssl",
+            "enabled",
+            "default_cluster",
+            "connection_url",
+            "tags",
+            "custom_fields",
+            "created",
+            "last_updated",
         )
-        brief_fields = ('id', 'url', 'display', 'name', 'connection_type')
-        
+        brief_fields = ("id", "url", "display", "name", "connection_type")
+
         # Do not expose key paths in brief responses
         # to avoid disclosing sensitive information
-        
+
         # Make cache fields read-only
-        read_only_fields = ('last_working_url', 'last_working_url_checked')
+        read_only_fields = ("last_working_url", "last_working_url_checked")
 
     def get_configured_urls(self, obj):
         """Returns the list of all configured HTTPS URLs."""
-        if obj.connection_type == 'https':
+        if obj.connection_type == "https":
             return obj.get_https_urls()
         return []
 
@@ -59,10 +59,11 @@ class IncusHostSerializer(NetBoxModelSerializer):
 
 class IncusHostBriefSerializer(NetBoxModelSerializer):
     """Brief serializer for nested representations."""
+
     url = serializers.HyperlinkedIdentityField(
-        view_name='plugins-api:netbox_incus_sync-api:incushost-detail'
+        view_name="plugins-api:netbox_incus_sync-api:incushost-detail"
     )
 
     class Meta:
         model = IncusHost
-        fields = ('id', 'url', 'display', 'name', 'connection_type', 'enabled')
+        fields = ("id", "url", "display", "name", "connection_type", "enabled")

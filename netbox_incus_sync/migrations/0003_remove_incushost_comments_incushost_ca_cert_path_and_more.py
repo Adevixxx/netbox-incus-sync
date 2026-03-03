@@ -7,47 +7,63 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('netbox_incus_sync', '0002_incushost_comments'),
+        ("netbox_incus_sync", "0002_incushost_comments"),
     ]
 
     operations = [
         migrations.RemoveField(
-            model_name='incushost',
-            name='comments',
+            model_name="incushost",
+            name="comments",
         ),
         migrations.AddField(
-            model_name='incushost',
-            name='ca_cert_path',
-            field=models.CharField(blank=True, max_length=500, validators=[netbox_incus_sync.models.validate_file_exists]),
+            model_name="incushost",
+            name="ca_cert_path",
+            field=models.CharField(
+                blank=True,
+                max_length=500,
+                validators=[netbox_incus_sync.models.validate_file_exists],
+            ),
         ),
         migrations.AddField(
-            model_name='incushost',
-            name='client_cert_path',
-            field=models.CharField(blank=True, max_length=500, validators=[netbox_incus_sync.models.validate_file_exists]),
+            model_name="incushost",
+            name="client_cert_path",
+            field=models.CharField(
+                blank=True,
+                max_length=500,
+                validators=[netbox_incus_sync.models.validate_file_exists],
+            ),
         ),
         migrations.AddField(
-            model_name='incushost',
-            name='client_key_path',
-            field=models.CharField(blank=True, max_length=500, validators=[netbox_incus_sync.models.validate_file_exists]),
+            model_name="incushost",
+            name="client_key_path",
+            field=models.CharField(
+                blank=True,
+                max_length=500,
+                validators=[netbox_incus_sync.models.validate_file_exists],
+            ),
         ),
         migrations.AddField(
-            model_name='incushost',
-            name='connection_type',
-            field=models.CharField(default='unix', max_length=10),
+            model_name="incushost",
+            name="connection_type",
+            field=models.CharField(default="unix", max_length=10),
         ),
         migrations.AddField(
-            model_name='incushost',
-            name='https_url',
+            model_name="incushost",
+            name="https_url",
             field=models.URLField(blank=True, max_length=255),
         ),
         migrations.AddField(
-            model_name='incushost',
-            name='verify_ssl',
+            model_name="incushost",
+            name="verify_ssl",
             field=models.BooleanField(default=True),
         ),
         migrations.AlterField(
-            model_name='incushost',
-            name='socket_path',
-            field=models.CharField(blank=True, default='http+unix://%2Fvar%2Flib%2Fincus%2Funix.socket', max_length=255),
+            model_name="incushost",
+            name="socket_path",
+            field=models.CharField(
+                blank=True,
+                default="http+unix://%2Fvar%2Flib%2Fincus%2Funix.socket",
+                max_length=255,
+            ),
         ),
     ]

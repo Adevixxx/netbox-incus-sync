@@ -19,20 +19,27 @@ logger = logging.getLogger(__name__)
 class IncusClientBase:
     """
     Base transport layer for the Incus API client.
-    
+
     Supports two connection modes:
     - Unix Socket (local): http+unix://%2Fvar%2Flib%2Fincus%2Funix.socket
     - HTTPS (remote): https://incus.example.com:8443 with TLS certificates
-    
+
     Security:
     - Certificates are read directly from system files
     - No secrets are stored in memory longer than necessary
     - Temporary files are never used
     """
 
-    def __init__(self, host=None, socket_url=None, https_url=None,
-                 client_cert_path=None, client_key_path=None,
-                 ca_cert_path=None, verify_ssl=True):
+    def __init__(
+        self,
+        host=None,
+        socket_url=None,
+        https_url=None,
+        client_cert_path=None,
+        client_key_path=None,
+        ca_cert_path=None,
+        verify_ssl=True,
+    ):
         """
         Initializes the Incus client.
 
@@ -56,6 +63,7 @@ class IncusClientBase:
         # If an IncusHost object is passed, extract config
         if host is not None:
             from ..models import ConnectionTypeChoices
+
             if host.connection_type == ConnectionTypeChoices.HTTPS:
                 self._client_cert_path = host.client_cert_path
                 self._client_key_path = host.client_key_path
@@ -70,7 +78,7 @@ class IncusClientBase:
                         self._client_cert_path,
                         self._client_key_path,
                         self._ca_cert_path,
-                        self._verify_ssl
+                        self._verify_ssl,
                     )
                 else:
                     raise ConnectionError("No working URL found among configured URLs")
@@ -79,21 +87,17 @@ class IncusClientBase:
                 self._setup_unix_socket(socket_url)
         elif https_url:
             self._setup_https(
-                https_url,
-                client_cert_path,
-                client_key_path,
-                ca_cert_path,
-                verify_ssl
+                https_url, client_cert_path, client_key_path, ca_cert_path, verify_ssl
             )
         elif socket_url:
             self._setup_unix_socket(socket_url)
         else:
             # Fallback to default socket
-            self._setup_unix_socket('http+unix://%2Fvar%2Flib%2Fincus%2Funix.socket')
+            self._setup_unix_socket("http+unix://%2Fvar%2Flib%2Fincus%2Funix.socket")
 
     # ========== Query Helpers ==========
 
-    def _build_project_query(self, base_params='', project=None):
+    def _build_project_query(self, base_params="", project=None):
         """
         Builds query string, appending ?project= when needed.
 
@@ -111,9 +115,9 @@ class IncusClientBase:
         parts = []
         if base_params:
             parts.append(base_params)
-        if project and project != 'default':
-            parts.append(f'project={project}')
-        return '?' + '&'.join(parts) if parts else ''
+        if project and project != "default":
+            parts.append(f"project={project}")
+        return "?" + "&".join(parts) if parts else ""
 
     # ========== Connection Setup ==========
 
@@ -123,22 +127,25 @@ class IncusClientBase:
         self.session = requests_unixsocket.Session()
         logger.debug(f"Incus client configured in Unix socket mode: {socket_url}")
 
-    def _setup_https(self, https_url, client_cert_path, client_key_path,
-                     ca_cert_path, verify_ssl):
+    def _setup_https(
+        self, https_url, client_cert_path, client_key_path, ca_cert_path, verify_ssl
+    ):
         """
         Configures connection via HTTPS with TLS certificates.
-        
+
         Certificates are passed directly by their file paths
         to the requests library, which reads them securely.
         """
-        self.base_url = https_url.rstrip('/')
+        self.base_url = https_url.rstrip("/")
         self.session = requests.Session()
 
         # Certificate files verification
         if client_cert_path and client_key_path:
             # Check that files exist
-            for path, name in [(client_cert_path, 'certificate'),
-                               (client_key_path, 'private key')]:
+            for path, name in [
+                (client_cert_path, "certificate"),
+                (client_key_path, "private key"),
+            ]:
                 if not os.path.isfile(path):
                     raise FileNotFoundError(f"File {name} not found: {path}")
                 if not os.access(path, os.R_OK):
@@ -157,9 +164,12 @@ class IncusClientBase:
         else:
             self.session.verify = verify_ssl
             if not verify_ssl:
-                logger.warning("SSL verification disabled - not recommended in production!")
+                logger.warning(
+                    "SSL verification disabled - not recommended in production!"
+                )
                 # Disable urllib3 warnings for unverified certificates
                 import urllib3
+
                 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
         logger.debug(f"Incus client configured in HTTPS mode: {https_url}")
@@ -227,7 +237,9 @@ class IncusClientBase:
 
         # Reorder URLs: put cached URL first if it exists
         if host.last_working_url and host.last_working_url in urls:
-            urls = [host.last_working_url] + [u for u in urls if u != host.last_working_url]
+            urls = [host.last_working_url] + [
+                u for u in urls if u != host.last_working_url
+            ]
             logger.debug(f"Testing {len(urls)} URLs, cached URL first")
         else:
             logger.debug(f"Testing {len(urls)} URLs")
@@ -261,7 +273,9 @@ class IncusClientBase:
 
             # Configure certificates
             if self._client_cert_path and self._client_key_path:
-                if os.path.isfile(self._client_cert_path) and os.path.isfile(self._client_key_path):
+                if os.path.isfile(self._client_cert_path) and os.path.isfile(
+                    self._client_key_path
+                ):
                     test_session.cert = (self._client_cert_path, self._client_key_path)
 
             # Configure SSL verification
@@ -271,6 +285,7 @@ class IncusClientBase:
                 test_session.verify = self._verify_ssl
                 if not self._verify_ssl:
                     import urllib3
+
                     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
             # Quick connection test with short timeout
@@ -279,7 +294,7 @@ class IncusClientBase:
             response.raise_for_status()
 
             data = response.json()
-            if data.get('type') == 'sync':
+            if data.get("type") == "sync":
                 return True
 
             return False

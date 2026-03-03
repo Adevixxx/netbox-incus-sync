@@ -18,9 +18,9 @@ class ClusterApiMixin:
             dict: Cluster information or None if no cluster
         """
         try:
-            data = self._request('GET', '/1.0/cluster')
-            if data.get('type') == 'sync':
-                return data.get('metadata')
+            data = self._request("GET", "/1.0/cluster")
+            if data.get("type") == "sync":
+                return data.get("metadata")
         except Exception as e:
             logger.debug(f"No cluster configured: {e}")
         return None
@@ -36,9 +36,9 @@ class ClusterApiMixin:
             list: List of cluster members
         """
         try:
-            data = self._request('GET', f'/1.0/cluster/members?recursion={recursion}')
-            if data.get('type') == 'sync':
-                return data.get('metadata', [])
+            data = self._request("GET", f"/1.0/cluster/members?recursion={recursion}")
+            if data.get("type") == "sync":
+                return data.get("metadata", [])
         except Exception as e:
             logger.debug(f"Unable to retrieve cluster members: {e}")
         return []
@@ -54,9 +54,9 @@ class ClusterApiMixin:
             dict: Member details or None
         """
         try:
-            data = self._request('GET', f'/1.0/cluster/members/{name}')
-            if data.get('type') == 'sync':
-                return data.get('metadata')
+            data = self._request("GET", f"/1.0/cluster/members/{name}")
+            if data.get("type") == "sync":
+                return data.get("metadata")
         except Exception as e:
             logger.debug(f"Member {name} not found: {e}")
         return None
@@ -72,9 +72,9 @@ class ClusterApiMixin:
             dict: Member state or None
         """
         try:
-            data = self._request('GET', f'/1.0/cluster/members/{name}/state')
-            if data.get('type') == 'sync':
-                return data.get('metadata')
+            data = self._request("GET", f"/1.0/cluster/members/{name}/state")
+            if data.get("type") == "sync":
+                return data.get("metadata")
         except Exception as e:
             logger.debug(f"Member state {name} not available: {e}")
         return None
@@ -90,9 +90,9 @@ class ClusterApiMixin:
             list: List of cluster groups
         """
         try:
-            data = self._request('GET', f'/1.0/cluster/groups?recursion={recursion}')
-            if data.get('type') == 'sync':
-                return data.get('metadata', [])
+            data = self._request("GET", f"/1.0/cluster/groups?recursion={recursion}")
+            if data.get("type") == "sync":
+                return data.get("metadata", [])
         except Exception as e:
             logger.debug(f"Unable to retrieve cluster groups: {e}")
         return []
@@ -108,9 +108,9 @@ class ClusterApiMixin:
             dict: Group details or None
         """
         try:
-            data = self._request('GET', f'/1.0/cluster/groups/{name}')
-            if data.get('type') == 'sync':
-                return data.get('metadata')
+            data = self._request("GET", f"/1.0/cluster/groups/{name}")
+            if data.get("type") == "sync":
+                return data.get("metadata")
         except Exception as e:
             logger.debug(f"Group {name} not found: {e}")
         return None

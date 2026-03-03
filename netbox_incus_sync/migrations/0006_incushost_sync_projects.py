@@ -6,13 +6,13 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('netbox_incus_sync', '0005_incushost_default_site'),
+        ("netbox_incus_sync", "0005_incushost_default_site"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='incushost',
-            name='sync_projects',
+            model_name="incushost",
+            name="sync_projects",
             field=models.JSONField(blank=True, default=list),
         ),
     ]

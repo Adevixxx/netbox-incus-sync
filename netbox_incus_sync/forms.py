@@ -27,10 +27,10 @@ from virtualization.models import Cluster
 from dcim.models import Site
 from .models import IncusHost, ConnectionTypeChoices
 
-
 # ============================================
 # Create / Edit Form
 # ============================================
+
 
 class IncusHostForm(NetBoxModelForm):
     """
@@ -43,87 +43,84 @@ class IncusHostForm(NetBoxModelForm):
     default_cluster = DynamicModelChoiceField(
         queryset=Cluster.objects.all(),
         required=False,
-        label='Default Cluster',
-        help_text="NetBox Cluster where synchronized VMs will be created"
+        label="Default Cluster",
+        help_text="NetBox Cluster where synchronized VMs will be created",
     )
 
     default_site = DynamicModelChoiceField(
         queryset=Site.objects.all(),
         required=False,
-        label='Default Site',
-        help_text="Site assigned to auto-created Devices for cluster nodes"
+        label="Default Site",
+        help_text="Site assigned to auto-created Devices for cluster nodes",
     )
 
     fieldsets = (
-        FieldSet('name', 'connection_type', 'enabled', name='General'),
-        FieldSet('socket_path', name='Unix Socket Connection'),
+        FieldSet("name", "connection_type", "enabled", name="General"),
+        FieldSet("socket_path", name="Unix Socket Connection"),
+        FieldSet("https_urls", "url_cache_ttl", name="HTTPS Connection - URLs"),
         FieldSet(
-            'https_urls',
-            'url_cache_ttl',
-            name='HTTPS Connection - URLs'
+            "client_cert_path",
+            "client_key_path",
+            "ca_cert_path",
+            "verify_ssl",
+            name="HTTPS Connection - Certificates",
         ),
-        FieldSet(
-            'client_cert_path',
-            'client_key_path',
-            'ca_cert_path',
-            'verify_ssl',
-            name='HTTPS Connection - Certificates'
-        ),
-        FieldSet('default_cluster', 'default_site', 'tags', name='NetBox Association'),
+        FieldSet("default_cluster", "default_site", "tags", name="NetBox Association"),
     )
 
     class Meta:
         model = IncusHost
         fields = (
-            'name',
-            'connection_type',
-            'socket_path',
-            'https_urls',
-            'url_cache_ttl',
-            'client_cert_path',
-            'client_key_path',
-            'ca_cert_path',
-            'verify_ssl',
-            'enabled',
-            'default_cluster',
-            'default_site',
-            'tags',
+            "name",
+            "connection_type",
+            "socket_path",
+            "https_urls",
+            "url_cache_ttl",
+            "client_cert_path",
+            "client_key_path",
+            "ca_cert_path",
+            "verify_ssl",
+            "enabled",
+            "default_cluster",
+            "default_site",
+            "tags",
         )
         widgets = {
-            'https_urls': forms.Textarea(attrs={
-                'placeholder': (
-                    '# One URL per line, lines starting with # are ignored\n'
-                    'https://incus1.example.com:8443\n'
-                    'https://incus2.example.com:8443\n'
-                ),
-                'rows': 5,
-            }),
-            'client_cert_path': forms.TextInput(attrs={
-                'placeholder': '/etc/netbox/incus/client.crt'
-            }),
-            'client_key_path': forms.TextInput(attrs={
-                'placeholder': '/etc/netbox/incus/client.key'
-            }),
-            'ca_cert_path': forms.TextInput(attrs={
-                'placeholder': '/etc/netbox/incus/server.crt (optional)'
-            }),
+            "https_urls": forms.Textarea(
+                attrs={
+                    "placeholder": (
+                        "# One URL per line, lines starting with # are ignored\n"
+                        "https://incus1.example.com:8443\n"
+                        "https://incus2.example.com:8443\n"
+                    ),
+                    "rows": 5,
+                }
+            ),
+            "client_cert_path": forms.TextInput(
+                attrs={"placeholder": "/etc/netbox/incus/client.crt"}
+            ),
+            "client_key_path": forms.TextInput(
+                attrs={"placeholder": "/etc/netbox/incus/client.key"}
+            ),
+            "ca_cert_path": forms.TextInput(
+                attrs={"placeholder": "/etc/netbox/incus/server.crt (optional)"}
+            ),
         }
         help_texts = {
-            'https_urls': (
+            "https_urls": (
                 "Server URLs for failover. One per line.\n"
                 "The system tests each URL until one works and caches the result."
             ),
-            'url_cache_ttl': (
+            "url_cache_ttl": (
                 "How long (in seconds) to use a working URL before re-testing. "
                 "Set to 0 to always test. Default: 300 (5 minutes)."
             ),
-            'client_cert_path': (
+            "client_cert_path": (
                 "Absolute path to client certificate. "
                 "File must be readable by NetBox user."
             ),
-            'client_key_path': (
-                "Absolute path to private key. "
-                "Recommended permissions: chmod 600"
+            "client_key_path": (
+                "Absolute path to private key. " "Recommended permissions: chmod 600"
             ),
         }
 
@@ -134,37 +131,39 @@ class IncusHostForm(NetBoxModelForm):
         if cleaned_data is None:
             return cleaned_data
 
-        connection_type = cleaned_data.get('connection_type')
+        connection_type = cleaned_data.get("connection_type")
 
         if connection_type == ConnectionTypeChoices.HTTPS:
-            https_urls = cleaned_data.get('https_urls') or ''
+            https_urls = cleaned_data.get("https_urls") or ""
             https_urls = https_urls.strip()
 
             # Need at least one URL
             has_url = False
             if https_urls:
-                for line in https_urls.split('\n'):
+                for line in https_urls.split("\n"):
                     line = line.strip()
-                    if line and not line.startswith('#'):
+                    if line and not line.startswith("#"):
                         has_url = True
                         break
 
             if not has_url:
-                raise forms.ValidationError({
-                    'https_urls': "At least one HTTPS URL is required."
-                })
+                raise forms.ValidationError(
+                    {"https_urls": "At least one HTTPS URL is required."}
+                )
 
             # Validate URL format
-            for i, line in enumerate(https_urls.split('\n'), 1):
+            for i, line in enumerate(https_urls.split("\n"), 1):
                 line = line.strip()
-                if not line or line.startswith('#'):
+                if not line or line.startswith("#"):
                     continue
 
                 # Basic URL validation
-                if not line.startswith(('http://', 'https://')):
-                    raise forms.ValidationError({
-                        'https_urls': f"Line {i}: URL must start with http:// or https://"
-                    })
+                if not line.startswith(("http://", "https://")):
+                    raise forms.ValidationError(
+                        {
+                            "https_urls": f"Line {i}: URL must start with http:// or https://"
+                        }
+                    )
 
         return cleaned_data
 
@@ -173,18 +172,21 @@ class IncusHostForm(NetBoxModelForm):
 # Cache Clear Form
 # ============================================
 
+
 class IncusHostClearCacheForm(forms.Form):
     """Simple form to confirm cache clearing."""
+
     confirm = forms.BooleanField(
         required=True,
         label="Confirm cache clear",
-        help_text="This will force a re-test of all URLs on next connection."
+        help_text="This will force a re-test of all URLs on next connection.",
     )
 
 
 # ============================================
 # Filter Form (sidebar in list view)
 # ============================================
+
 
 class IncusHostFilterForm(NetBoxModelFilterSetForm):
     """
@@ -201,37 +203,37 @@ class IncusHostFilterForm(NetBoxModelFilterSetForm):
     model = IncusHost
 
     fieldsets = (
-        FieldSet('q', 'filter_id', 'tag'),
-        FieldSet('connection_type', 'enabled', 'verify_ssl', name='Connection'),
-        FieldSet('default_cluster_id', 'default_site_id', name='NetBox Association'),
+        FieldSet("q", "filter_id", "tag"),
+        FieldSet("connection_type", "enabled", "verify_ssl", name="Connection"),
+        FieldSet("default_cluster_id", "default_site_id", name="NetBox Association"),
     )
 
     connection_type = forms.MultipleChoiceField(
         choices=ConnectionTypeChoices.choices,
         required=False,
-        label='Connection Type',
+        label="Connection Type",
     )
 
     enabled = forms.NullBooleanField(
         required=False,
-        label='Enabled',
+        label="Enabled",
         widget=forms.Select(
             choices=(
-                ('', '---------'),
-                ('true', 'Yes'),
-                ('false', 'No'),
+                ("", "---------"),
+                ("true", "Yes"),
+                ("false", "No"),
             )
         ),
     )
 
     verify_ssl = forms.NullBooleanField(
         required=False,
-        label='Verify SSL',
+        label="Verify SSL",
         widget=forms.Select(
             choices=(
-                ('', '---------'),
-                ('true', 'Yes'),
-                ('false', 'No'),
+                ("", "---------"),
+                ("true", "Yes"),
+                ("false", "No"),
             )
         ),
     )
@@ -239,13 +241,13 @@ class IncusHostFilterForm(NetBoxModelFilterSetForm):
     default_cluster_id = DynamicModelMultipleChoiceField(
         queryset=Cluster.objects.all(),
         required=False,
-        label='Default Cluster',
+        label="Default Cluster",
     )
 
     default_site_id = DynamicModelMultipleChoiceField(
         queryset=Site.objects.all(),
         required=False,
-        label='Default Site',
+        label="Default Site",
     )
 
     tag = TagFilterField(model)
@@ -254,6 +256,7 @@ class IncusHostFilterForm(NetBoxModelFilterSetForm):
 # ============================================
 # Bulk Edit Form (edit multiple hosts at once)
 # ============================================
+
 
 class IncusHostBulkEditForm(NetBoxModelBulkEditForm):
     """
@@ -270,51 +273,52 @@ class IncusHostBulkEditForm(NetBoxModelBulkEditForm):
     connection_type = forms.ChoiceField(
         choices=ConnectionTypeChoices.choices,
         required=False,
-        label='Connection Type',
+        label="Connection Type",
     )
 
     enabled = forms.NullBooleanField(
         required=False,
-        label='Enabled',
+        label="Enabled",
         widget=BulkEditNullBooleanSelect,
     )
 
     verify_ssl = forms.NullBooleanField(
         required=False,
-        label='Verify SSL',
+        label="Verify SSL",
         widget=BulkEditNullBooleanSelect,
     )
 
     url_cache_ttl = forms.IntegerField(
         required=False,
-        label='URL Cache TTL (seconds)',
+        label="URL Cache TTL (seconds)",
         min_value=0,
     )
 
     default_cluster = DynamicModelChoiceField(
         queryset=Cluster.objects.all(),
         required=False,
-        label='Default Cluster',
+        label="Default Cluster",
     )
 
     default_site = DynamicModelChoiceField(
         queryset=Site.objects.all(),
         required=False,
-        label='Default Site',
+        label="Default Site",
     )
 
     fieldsets = (
-        FieldSet('connection_type', 'enabled', name='General'),
-        FieldSet('verify_ssl', 'url_cache_ttl', name='HTTPS Settings'),
-        FieldSet('default_cluster', 'default_site', name='NetBox Association'),
+        FieldSet("connection_type", "enabled", name="General"),
+        FieldSet("verify_ssl", "url_cache_ttl", name="HTTPS Settings"),
+        FieldSet("default_cluster", "default_site", name="NetBox Association"),
     )
 
-    nullable_fields = ('default_cluster', 'default_site')
+    nullable_fields = ("default_cluster", "default_site")
 
 
 # ============================================
 # Import Form (CSV bulk import)
 # ============================================
+
 
 class IncusHostImportForm(NetBoxModelImportForm):
     """
@@ -333,31 +337,31 @@ class IncusHostImportForm(NetBoxModelImportForm):
     default_cluster = DynamicModelChoiceField(
         queryset=Cluster.objects.all(),
         required=False,
-        to_field_name='name',
-        label='Default Cluster',
-        help_text='Cluster name (must already exist)',
+        to_field_name="name",
+        label="Default Cluster",
+        help_text="Cluster name (must already exist)",
     )
 
     # Resolve site by slug (NetBox convention for imports)
     default_site = DynamicModelChoiceField(
         queryset=Site.objects.all(),
         required=False,
-        to_field_name='slug',
-        label='Default Site',
-        help_text='Site slug (must already exist)',
+        to_field_name="slug",
+        label="Default Site",
+        help_text="Site slug (must already exist)",
     )
 
     class Meta:
         model = IncusHost
         fields = (
-            'name',
-            'connection_type',
-            'enabled',
-            'socket_path',
-            'https_urls',
-            'url_cache_ttl',
-            'verify_ssl',
-            'default_cluster',
-            'default_site',
-            'tags',
+            "name",
+            "connection_type",
+            "enabled",
+            "socket_path",
+            "https_urls",
+            "url_cache_ttl",
+            "verify_ssl",
+            "default_cluster",
+            "default_site",
+            "tags",
         )

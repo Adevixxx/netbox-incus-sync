@@ -36,11 +36,11 @@ class SyncIncusJob(JobRunner):
         name = "Incus Synchronization"
 
     def run(self, *args, **kwargs):
-        host_ids = kwargs.get('host_ids', None)
+        host_ids = kwargs.get("host_ids", None)
 
         if host_ids:
             hosts = IncusHost.objects.filter(pk__in=host_ids, enabled=True)
-            host_names = ', '.join(hosts.values_list('name', flat=True))
+            host_names = ", ".join(hosts.values_list("name", flat=True))
             self.logger.info(f"Initializing Incus synchronization for: {host_names}")
         else:
             self.logger.info("Initializing Incus synchronization...")
@@ -64,25 +64,25 @@ class SyncIncusJob(JobRunner):
         instance_service.setup()
 
         stats = {
-            'instances_created': 0,
-            'instances_updated': 0,
-            'instances_removed': 0,
-            'interfaces_synced': 0,
-            'ips_synced': 0,
-            'disks_synced': 0,
-            'logs_synced': 0,
-            'config_contexts_created': 0,
-            'config_contexts_updated': 0,
-            'profiles_synced': 0,
-            'profiles_created': 0,
-            'profiles_updated': 0,
-            'profiles_removed': 0,
-            'prefixes_created': 0,
-            'prefixes_updated': 0,
-            'vlans_created': 0,
-            'tenants_created': 0,
-            'tenants_removed': 0,
-            'projects_synced': 0,
+            "instances_created": 0,
+            "instances_updated": 0,
+            "instances_removed": 0,
+            "interfaces_synced": 0,
+            "ips_synced": 0,
+            "disks_synced": 0,
+            "logs_synced": 0,
+            "config_contexts_created": 0,
+            "config_contexts_updated": 0,
+            "profiles_synced": 0,
+            "profiles_created": 0,
+            "profiles_updated": 0,
+            "profiles_removed": 0,
+            "prefixes_created": 0,
+            "prefixes_updated": 0,
+            "vlans_created": 0,
+            "tenants_created": 0,
+            "tenants_removed": 0,
+            "projects_synced": 0,
         }
 
         for host in hosts:
@@ -96,7 +96,7 @@ class SyncIncusJob(JobRunner):
                 profile_service,
                 ipam_service,
                 tenant_service,
-                stats
+                stats,
             )
 
         self.logger.info(
@@ -112,9 +112,19 @@ class SyncIncusJob(JobRunner):
             f"VLANs: +{stats['vlans_created']}"
         )
 
-    def _process_host(self, host, instance_service, network_service, disk_service,
-                      event_service, config_context_service, profile_service,
-                      ipam_service, tenant_service, stats):
+    def _process_host(
+        self,
+        host,
+        instance_service,
+        network_service,
+        disk_service,
+        event_service,
+        config_context_service,
+        profile_service,
+        ipam_service,
+        tenant_service,
+        stats,
+    ):
         """
         Processes an Incus host.
 
@@ -129,7 +139,9 @@ class SyncIncusJob(JobRunner):
         4. Handle deletions
         5. Sync logs
         """
-        self.logger.info(f"Processing host: {host.name} ({host.get_connection_type_display()})")
+        self.logger.info(
+            f"Processing host: {host.name} ({host.get_connection_type_display()})"
+        )
 
         try:
             client = IncusClient(host=host)
@@ -154,22 +166,28 @@ class SyncIncusJob(JobRunner):
             projects = client.get_projects(recursion=1)
 
             if not projects:
-                self.logger.info("  No projects found (or only default). Using default project.")
-                projects = [{
-                    'name': 'default',
-                    'description': 'Default Incus project',
-                    'config': {},
-                }]
+                self.logger.info(
+                    "  No projects found (or only default). Using default project."
+                )
+                projects = [
+                    {
+                        "name": "default",
+                        "description": "Default Incus project",
+                        "config": {},
+                    }
+                ]
 
             if host.sync_projects:
-                projects = [p for p in projects if p.get('name') in host.sync_projects]
-                self.logger.info(f"  Filtered to {len(projects)} project(s): {host.sync_projects}")
+                projects = [p for p in projects if p.get("name") in host.sync_projects]
+                self.logger.info(
+                    f"  Filtered to {len(projects)} project(s): {host.sync_projects}"
+                )
 
             tenant_result = tenant_service.sync_all_projects(projects, host=host)
-            tenant_map = tenant_result['tenant_map']
-            stats['tenants_created'] += tenant_result['tenants_created']
-            stats['tenants_removed'] += tenant_result['tenants_removed']
-            stats['projects_synced'] += len(tenant_map)
+            tenant_map = tenant_result["tenant_map"]
+            stats["tenants_created"] += tenant_result["tenants_created"]
+            stats["tenants_removed"] += tenant_result["tenants_removed"]
+            stats["projects_synced"] += len(tenant_map)
 
             self.logger.info(f"  > {len(tenant_map)} projects synced as tenants")
 
@@ -186,46 +204,63 @@ class SyncIncusJob(JobRunner):
             # Process each project
             # ====================================================
             for project_data in projects:
-                project_name = project_data.get('name', 'default')
-                project_config = project_data.get('config', {})
+                project_name = project_data.get("name", "default")
+                project_config = project_data.get("config", {})
                 tenant = tenant_map.get(project_name)
 
                 self.logger.info(f"  --- Project: {project_name} ---")
                 self.logger.debug(f"    Tenant: {tenant}")
 
                 features = {
-                    'profiles': project_config.get('features.profiles', 'true' if project_name == 'default' else 'false').lower() == 'true',
-                    'networks': project_config.get('features.networks', 'false').lower() == 'true',
-                    'storage_volumes': project_config.get('features.storage.volumes', 'true' if project_name == 'default' else 'false').lower() == 'true',
-                    'images': project_config.get('features.images', 'true' if project_name == 'default' else 'false').lower() == 'true',
+                    "profiles": project_config.get(
+                        "features.profiles",
+                        "true" if project_name == "default" else "false",
+                    ).lower()
+                    == "true",
+                    "networks": project_config.get("features.networks", "false").lower()
+                    == "true",
+                    "storage_volumes": project_config.get(
+                        "features.storage.volumes",
+                        "true" if project_name == "default" else "false",
+                    ).lower()
+                    == "true",
+                    "images": project_config.get(
+                        "features.images",
+                        "true" if project_name == "default" else "false",
+                    ).lower()
+                    == "true",
                 }
 
                 # ====================================================
                 # Phase 0: Sync networks for this project
                 # ====================================================
-                if features['networks'] or project_name == 'default':
+                if features["networks"] or project_name == "default":
                     networks = client.get_networks(project=project_name)
                     network_service.log_networks_info(networks)
 
                     net_stats = ipam_service.sync_networks(networks, host)
-                    stats['prefixes_created'] += net_stats['prefixes_created']
-                    stats['prefixes_updated'] += net_stats['prefixes_updated']
-                    stats['vlans_created'] += net_stats['vlans_created']
+                    stats["prefixes_created"] += net_stats["prefixes_created"]
+                    stats["prefixes_updated"] += net_stats["prefixes_updated"]
+                    stats["vlans_created"] += net_stats["vlans_created"]
                 else:
-                    self.logger.info(f"    Networks inherited from default (features.networks=false)")
+                    self.logger.info(
+                        f"    Networks inherited from default (features.networks=false)"
+                    )
 
                 # ====================================================
                 # Phase 0.5: Sync profiles for this project
                 # ====================================================
-                if features['profiles'] or project_name == 'default':
+                if features["profiles"] or project_name == "default":
                     profiles = client.get_profiles(recursion=1, project=project_name)
                     profile_stats = profile_service.sync_profiles(profiles, host)
-                    stats['profiles_synced'] += profile_stats['profiles_synced']
-                    stats['profiles_created'] += profile_stats['profiles_created']
-                    stats['profiles_updated'] += profile_stats['profiles_updated']
-                    stats['profiles_removed'] += profile_stats['profiles_removed']
+                    stats["profiles_synced"] += profile_stats["profiles_synced"]
+                    stats["profiles_created"] += profile_stats["profiles_created"]
+                    stats["profiles_updated"] += profile_stats["profiles_updated"]
+                    stats["profiles_removed"] += profile_stats["profiles_removed"]
                 else:
-                    self.logger.info(f"    Profiles inherited from default (features.profiles=false)")
+                    self.logger.info(
+                        f"    Profiles inherited from default (features.profiles=false)"
+                    )
 
                 # ====================================================
                 # Phase 1: Instance sync for this project
@@ -239,23 +274,26 @@ class SyncIncusJob(JobRunner):
                 project_disks = 0
 
                 for instance_data in instances:
-                    config = instance_data.get('config', {})
-                    incus_uuid = config.get('volatile.uuid', '')
+                    config = instance_data.get("config", {})
+                    incus_uuid = config.get("volatile.uuid", "")
 
                     if incus_uuid:
                         all_incus_uuids.add(incus_uuid)
 
                     vm, created, updated = instance_service.sync_instance(
-                        instance_data, cluster, host,
-                        tenant=tenant, project=project_name
+                        instance_data,
+                        cluster,
+                        host,
+                        tenant=tenant,
+                        project=project_name,
                     )
 
                     if created:
                         project_created += 1
-                        stats['instances_created'] += 1
+                        stats["instances_created"] += 1
                     elif updated:
                         project_updated += 1
-                        stats['instances_updated'] += 1
+                        stats["instances_updated"] += 1
 
                     if vm:
                         iface_count, ip_count = network_service.sync_instance_network(
@@ -263,10 +301,12 @@ class SyncIncusJob(JobRunner):
                         )
                         project_ifaces += iface_count
                         project_ips += ip_count
-                        stats['interfaces_synced'] += iface_count
-                        stats['ips_synced'] += ip_count
+                        stats["interfaces_synced"] += iface_count
+                        stats["ips_synced"] += ip_count
 
-                        devices = instance_data.get('expanded_devices') or instance_data.get('devices', {})
+                        devices = instance_data.get(
+                            "expanded_devices"
+                        ) or instance_data.get("devices", {})
                         self._sync_interface_vlans_and_ips(
                             vm, devices, host, ipam_service, stats
                         )
@@ -275,17 +315,19 @@ class SyncIncusJob(JobRunner):
                             vm, instance_data, client
                         )
                         project_disks += disk_count
-                        stats['disks_synced'] += disk_count
+                        stats["disks_synced"] += disk_count
 
-                        cc_updated, cc_created = config_context_service.sync_instance_config_context(
-                            vm, instance_data, host
+                        cc_updated, cc_created = (
+                            config_context_service.sync_instance_config_context(
+                                vm, instance_data, host
+                            )
                         )
                         if cc_created:
-                            stats['config_contexts_created'] += 1
+                            stats["config_contexts_created"] += 1
                         elif cc_updated:
-                            stats['config_contexts_updated'] += 1
+                            stats["config_contexts_updated"] += 1
 
-                        instance_profiles = instance_data.get('profiles', [])
+                        instance_profiles = instance_data.get("profiles", [])
                         profile_service.assign_profile_tags_to_vm(vm, instance_profiles)
 
                 self.logger.info(
@@ -298,10 +340,10 @@ class SyncIncusJob(JobRunner):
             # Handle deletions (using UUIDs across all projects)
             # ====================================================
             deleted = instance_service.handle_deletions(cluster, host, all_incus_uuids)
-            stats['instances_removed'] += deleted
+            stats["instances_removed"] += deleted
 
             logs_count = event_service.sync_events(host, client)
-            stats['logs_synced'] += logs_count
+            stats["logs_synced"] += logs_count
 
         except Exception as e:
             self.logger.error(f"Error processing {host.name}: {e}")
@@ -316,7 +358,7 @@ class SyncIncusJob(JobRunner):
         vm_iface_ct = ContentType.objects.get_for_model(VMInterface)
 
         for iface in VMInterface.objects.filter(virtual_machine=vm):
-            device_name = iface.custom_field_data.get('incus_device_name', iface.name)
+            device_name = iface.custom_field_data.get("incus_device_name", iface.name)
             device_config = devices.get(device_name, {})
 
             if device_config:
@@ -326,7 +368,7 @@ class SyncIncusJob(JobRunner):
             assigned_object_type=vm_iface_ct,
             assigned_object_id__in=VMInterface.objects.filter(
                 virtual_machine=vm
-            ).values_list('pk', flat=True)
+            ).values_list("pk", flat=True),
         ):
             ipam_service.link_ip_to_prefix(ip)
 
@@ -335,8 +377,8 @@ class SyncIncusJob(JobRunner):
         try:
             server_info = client.get_server_info()
             if server_info:
-                env = server_info.get('environment', {})
-                version = env.get('server_version', '')
+                env = server_info.get("environment", {})
+                version = env.get("server_version", "")
                 self.logger.info(
                     f"  Server: {env.get('server_name', 'unknown')} "
                     f"v{version or '?'} "
@@ -351,12 +393,12 @@ class SyncIncusJob(JobRunner):
         """Retrieves Incus cluster info (or None if not clustered)."""
         try:
             cluster = client.get_cluster()
-            if cluster and cluster.get('enabled'):
+            if cluster and cluster.get("enabled"):
                 members = client.get_cluster_members()
                 return {
-                    'enabled': True,
-                    'server_name': cluster.get('server_name', ''),
-                    'members': members,
+                    "enabled": True,
+                    "server_name": cluster.get("server_name", ""),
+                    "members": members,
                 }
         except Exception:
             pass
@@ -394,4 +436,6 @@ class SyncEventsJob(JobRunner):
             except Exception as e:
                 self.logger.error(f"Error processing {host.name}: {e}")
 
-        self.logger.info(f"Logs synchronization finished. Total: {total_logs} log entries")
+        self.logger.info(
+            f"Logs synchronization finished. Total: {total_logs} log entries"
+        )

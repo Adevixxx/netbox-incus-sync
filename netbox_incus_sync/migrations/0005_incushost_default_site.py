@@ -7,14 +7,23 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('dcim', '0225_gfk_indexes'),
-        ('netbox_incus_sync', '0004_incushost_https_urls_incushost_last_working_url_and_more'),
+        ("dcim", "0225_gfk_indexes"),
+        (
+            "netbox_incus_sync",
+            "0004_incushost_https_urls_incushost_last_working_url_and_more",
+        ),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='incushost',
-            name='default_site',
-            field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='incus_hosts', to='dcim.site'),
+            model_name="incushost",
+            name="default_site",
+            field=models.ForeignKey(
+                blank=True,
+                null=True,
+                on_delete=django.db.models.deletion.SET_NULL,
+                related_name="incus_hosts",
+                to="dcim.site",
+            ),
         ),
     ]

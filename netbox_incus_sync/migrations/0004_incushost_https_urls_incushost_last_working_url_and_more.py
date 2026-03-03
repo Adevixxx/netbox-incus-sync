@@ -6,28 +6,31 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('netbox_incus_sync', '0003_remove_incushost_comments_incushost_ca_cert_path_and_more'),
+        (
+            "netbox_incus_sync",
+            "0003_remove_incushost_comments_incushost_ca_cert_path_and_more",
+        ),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='incushost',
-            name='https_urls',
+            model_name="incushost",
+            name="https_urls",
             field=models.TextField(blank=True),
         ),
         migrations.AddField(
-            model_name='incushost',
-            name='last_working_url',
+            model_name="incushost",
+            name="last_working_url",
             field=models.URLField(blank=True, max_length=255),
         ),
         migrations.AddField(
-            model_name='incushost',
-            name='last_working_url_checked',
+            model_name="incushost",
+            name="last_working_url_checked",
             field=models.DateTimeField(blank=True, null=True),
         ),
         migrations.AddField(
-            model_name='incushost',
-            name='url_cache_ttl',
+            model_name="incushost",
+            name="url_cache_ttl",
             field=models.IntegerField(default=300),
         ),
     ]

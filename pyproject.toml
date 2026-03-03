@@ -54,3 +54,18 @@ netbox_incus_sync = [
     "templates/**/*.html",
     "static/**/*",
 ]
+
+[tool.pylint.master]
+load-plugins = "pylint_django"
+django-settings-module = "netbox.settings"
+ignore = ["migrations"]
+
+[tool.pylint.format]
+max-line-length = 120
+
+[tool.pylint.messages_control]
+disable = [
+    "missing-docstring",
+    "too-few-public-methods",
+    "no-member", # Parfois nécessaire même avec pylint-django pour certains custom fields NetBox
+]

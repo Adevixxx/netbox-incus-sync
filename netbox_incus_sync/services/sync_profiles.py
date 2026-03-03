@@ -7,13 +7,6 @@ This service maps Incus profiles to NetBox's Config Context system:
 - Tags (incus-profile-<name>) are used for automatic association
 - Profile stacking order is translated to ConfigContext weights
 - Instance-specific overrides remain in local_context_data
-
-CHANGES vs previous version:
-- ConfigContext names: "incus:host:profile" → "profile" (scoped by tenant_groups)
-- Tags name: "Incus Profile: xyz" → "xyz" (just the profile name)
-- Tags description: generic text → actual Incus profile description
-- ConfigContext scoping: uses TenantGroup assignment instead of name prefix
-- Migration: automatically cleans up old colon-separated ConfigContext names
 """
 
 import json
@@ -25,24 +18,26 @@ from django.contrib.contenttypes.models import ContentType
 from virtualization.models import VirtualMachine
 
 from .sync_utils import (
-    sanitize_config, sanitize_devices,
-    extract_limits, extract_security,
-    EXCLUDE_CONFIG_PREFIXES, EXCLUDE_CONFIG_EXACT,
+    sanitize_config,
+    sanitize_devices,
+    extract_limits,
+    extract_security,
+    EXCLUDE_CONFIG_PREFIXES,
+    EXCLUDE_CONFIG_EXACT,
 )
-
 
 # Base weight for profile-based config contexts
 PROFILE_BASE_WEIGHT = 1000
 PROFILE_WEIGHT_STEP = 100
 
 # Tag prefix for profile-based tags (slug only, for identification)
-PROFILE_TAG_PREFIX = 'incus-profile'
+PROFILE_TAG_PREFIX = "incus-profile"
 
 # Old ConfigContext name prefix (for migration/cleanup)
-OLD_CONTEXT_NAME_PREFIX = 'incus'
+OLD_CONTEXT_NAME_PREFIX = "incus"
 
 # TenantGroup slug prefix (reuse the same as TenantSyncService)
-TENANT_GROUP_SLUG_PREFIX = 'incus-projects'
+TENANT_GROUP_SLUG_PREFIX = "incus-projects"
 
 
 class ProfileSyncService:
@@ -88,14 +83,14 @@ class ProfileSyncService:
             dict: Statistics {profiles_synced, profiles_created, profiles_updated, profiles_removed}
         """
         stats = {
-            'profiles_synced': 0,
-            'profiles_created': 0,
-            'profiles_updated': 0,
-            'profiles_removed': 0,
+            "profiles_synced": 0,
+            "profiles_created": 0,
+            "profiles_updated": 0,
+            "profiles_removed": 0,
         }
 
         if not profiles_data:
-            self.log('info', '  No profiles to sync')
+            self.log("info", "  No profiles to sync")
             return stats
 
         # Migrate old colon-separated ConfigContext names first
@@ -104,7 +99,7 @@ class ProfileSyncService:
         synced_context_names = set()
 
         for idx, profile_data in enumerate(profiles_data):
-            profile_name = profile_data.get('name', '')
+            profile_name = profile_data.get("name", "")
             if not profile_name:
                 continue
 
@@ -117,17 +112,24 @@ class ProfileSyncService:
                 position=idx,
             )
 
-            stats['profiles_synced'] += 1
+            stats["profiles_synced"] += 1
             if created:
-                stats['profiles_created'] += 1
+                stats["profiles_created"] += 1
             elif updated:
-                stats['profiles_updated'] += 1
+                stats["profiles_updated"] += 1
 
         removed = self._cleanup_stale_contexts(host.name, synced_context_names)
-        stats['profiles_removed'] = removed
+        stats["profiles_removed"] = removed
 
-        changed = stats['profiles_created'] + stats['profiles_updated'] + stats['profiles_removed']
-        self.log('info', f"    Profiles: {stats['profiles_synced']} synced ({changed} changed)")
+        changed = (
+            stats["profiles_created"]
+            + stats["profiles_updated"]
+            + stats["profiles_removed"]
+        )
+        self.log(
+            "info",
+            f"    Profiles: {stats['profiles_synced']} synced ({changed} changed)",
+        )
 
         return stats
 
@@ -152,18 +154,22 @@ class ProfileSyncService:
             self._get_or_create_profile_tag(name)
 
         current_profile_tags = set(
-            vm.tags.filter(slug__startswith=f'{PROFILE_TAG_PREFIX}-')
-            .values_list('slug', flat=True)
+            vm.tags.filter(slug__startswith=f"{PROFILE_TAG_PREFIX}-").values_list(
+                "slug", flat=True
+            )
         )
 
         # Also catch any old colon-style tags that may still be assigned
         current_profile_tags_colon = set(
-            vm.tags.filter(slug__startswith=f'{PROFILE_TAG_PREFIX}')
-            .values_list('slug', flat=True)
+            vm.tags.filter(slug__startswith=f"{PROFILE_TAG_PREFIX}").values_list(
+                "slug", flat=True
+            )
         )
         current_profile_tags = current_profile_tags | current_profile_tags_colon
 
-        current_managed = {s for s in current_profile_tags if self._is_profile_tag_slug(s)}
+        current_managed = {
+            s for s in current_profile_tags if self._is_profile_tag_slug(s)
+        }
 
         tags_to_add = desired_slugs - current_managed
         tags_to_remove = current_managed - desired_slugs
@@ -174,7 +180,7 @@ class ProfileSyncService:
             stale_tags = Tag.objects.filter(slug__in=tags_to_remove)
             for tag in stale_tags:
                 vm.tags.remove(tag)
-                self.log('debug', f"    Removed tag '{tag.slug}' from {vm.name}")
+                self.log("debug", f"    Removed tag '{tag.slug}' from {vm.name}")
             modified = True
 
         if tags_to_add:
@@ -182,7 +188,7 @@ class ProfileSyncService:
                 tag = self._tag_cache.get(slug) or Tag.objects.filter(slug=slug).first()
                 if tag:
                     vm.tags.add(tag)
-                    self.log('debug', f"    Added tag '{tag.slug}' to {vm.name}")
+                    self.log("debug", f"    Added tag '{tag.slug}' to {vm.name}")
             modified = True
 
         return modified
@@ -203,8 +209,8 @@ class ProfileSyncService:
         Returns:
             tuple: (created: bool, updated: bool)
         """
-        profile_name = profile_data.get('name', '')
-        profile_description = profile_data.get('description', '')
+        profile_name = profile_data.get("name", "")
+        profile_description = profile_data.get("description", "")
         context_name = self._make_context_name(host.name, profile_name)
 
         tag = self._get_or_create_profile_tag(profile_name, profile_description)
@@ -255,7 +261,7 @@ class ProfileSyncService:
             ctx.tags.add(tag)
             if tenant_group:
                 ctx.tenant_groups.add(tenant_group)
-            self.log('info', f"    Created ConfigContext: {context_name}")
+            self.log("info", f"    Created ConfigContext: {context_name}")
             return True, False
 
     def _build_profile_context_data(self, profile_data, host):
@@ -269,9 +275,9 @@ class ProfileSyncService:
         Returns:
             dict: Structured context data
         """
-        profile_name = profile_data.get('name', '')
-        config = profile_data.get('config', {})
-        devices = profile_data.get('devices', {})
+        profile_name = profile_data.get("name", "")
+        config = profile_data.get("config", {})
+        devices = profile_data.get("devices", {})
 
         sanitized_config = sanitize_config(config)
         sanitized_devs = sanitize_devices(devices)
@@ -282,27 +288,27 @@ class ProfileSyncService:
         storage_summary = self._extract_storage_summary(devices)
 
         data = {
-            'incus': {
-                'profiles': {
+            "incus": {
+                "profiles": {
                     profile_name: {
-                        'config': sanitized_config,
-                        'devices': sanitized_devs,
-                        'description': profile_data.get('description', ''),
-                        'source_host': host.name,
+                        "config": sanitized_config,
+                        "devices": sanitized_devs,
+                        "description": profile_data.get("description", ""),
+                        "source_host": host.name,
                     }
                 }
             }
         }
 
-        profile_section = data['incus']['profiles'][profile_name]
+        profile_section = data["incus"]["profiles"][profile_name]
         if limits:
-            profile_section['limits'] = limits
+            profile_section["limits"] = limits
         if security:
-            profile_section['security'] = security
+            profile_section["security"] = security
         if network_summary:
-            profile_section['network'] = network_summary
+            profile_section["network"] = network_summary
         if storage_summary:
-            profile_section['storage'] = storage_summary
+            profile_section["storage"] = storage_summary
 
         return data
 
@@ -320,14 +326,12 @@ class ProfileSyncService:
         # Find all ConfigContexts scoped to this host's TenantGroup
         stale_contexts = ConfigContext.objects.filter(
             tenant_groups=tenant_group
-        ).exclude(
-            name__in=active_context_names
-        )
+        ).exclude(name__in=active_context_names)
 
         count = stale_contexts.count()
         if count > 0:
             for ctx in stale_contexts:
-                self.log('info', f"    Removed stale ConfigContext: {ctx.name}")
+                self.log("info", f"    Removed stale ConfigContext: {ctx.name}")
             stale_contexts.delete()
 
         return count
@@ -358,7 +362,7 @@ class ProfileSyncService:
 
         migrated = 0
         for ctx in old_contexts:
-            parts = ctx.name.split(':', 2)
+            parts = ctx.name.split(":", 2)
             if len(parts) != 3:
                 continue
             profile_name = parts[2]
@@ -367,17 +371,19 @@ class ProfileSyncService:
 
         # Migrate dash-separated format: "incus-hostname-profilename"
         old_prefix_dash = f"incus-{host.name}-"
-        old_contexts_dash = ConfigContext.objects.filter(name__startswith=old_prefix_dash)
+        old_contexts_dash = ConfigContext.objects.filter(
+            name__startswith=old_prefix_dash
+        )
 
         for ctx in old_contexts_dash:
-            profile_name = ctx.name[len(old_prefix_dash):]
+            profile_name = ctx.name[len(old_prefix_dash) :]
             if not profile_name:
                 continue
             self._do_migrate_context(ctx, profile_name, tenant_group)
             migrated += 1
 
         if migrated:
-            self.log('info', f"    Migration: {migrated} ConfigContext(s) renamed")
+            self.log("info", f"    Migration: {migrated} ConfigContext(s) renamed")
 
     def _do_migrate_context(self, ctx, new_name, tenant_group):
         """Renames a ConfigContext and adds TenantGroup scoping."""
@@ -385,8 +391,10 @@ class ProfileSyncService:
 
         # Check if target name already exists (avoid collision)
         if ConfigContext.objects.filter(name=new_name).exclude(pk=ctx.pk).exists():
-            self.log('warning',
-                f"    Migration skip: '{old_name}' → '{new_name}' (target already exists)")
+            self.log(
+                "warning",
+                f"    Migration skip: '{old_name}' → '{new_name}' (target already exists)",
+            )
             ctx.delete()
             return
 
@@ -396,13 +404,13 @@ class ProfileSyncService:
         if tenant_group and tenant_group not in ctx.tenant_groups.all():
             ctx.tenant_groups.add(tenant_group)
 
-        self.log('info', f"    Migrated ConfigContext: '{old_name}' → '{new_name}'")
+        self.log("info", f"    Migrated ConfigContext: '{old_name}' → '{new_name}'")
 
     # ========================================================================
     # Tag management
     # ========================================================================
 
-    def _get_or_create_profile_tag(self, profile_name, profile_description=''):
+    def _get_or_create_profile_tag(self, profile_name, profile_description=""):
         """
         Gets or creates a tag for an Incus profile.
 
@@ -421,25 +429,25 @@ class ProfileSyncService:
             # Update description if changed
             if profile_description and tag.description != profile_description:
                 tag.description = profile_description
-                tag.save(update_fields=['description'])
+                tag.save(update_fields=["description"])
             return tag
 
         # Build the description: use Incus profile description if available
-        description = profile_description or f'Incus profile: {profile_name}'
+        description = profile_description or f"Incus profile: {profile_name}"
 
         tag, created = Tag.objects.get_or_create(
             slug=slug,
             defaults={
-                'name': profile_name,
-                'description': description,
-                'color': '3f51b5',
-            }
+                "name": profile_name,
+                "description": description,
+                "color": "3f51b5",
+            },
         )
 
         # If tag existed but has old-style name, update it
         updated = False
         if not created:
-            if tag.name != profile_name and tag.name.startswith('Incus Profile:'):
+            if tag.name != profile_name and tag.name.startswith("Incus Profile:"):
                 tag.name = profile_name
                 updated = True
             if profile_description and tag.description != profile_description:
@@ -447,23 +455,23 @@ class ProfileSyncService:
                 updated = True
             if updated:
                 tag.save()
-                self.log('info', f"    Updated tag: {tag.name} ({slug})")
+                self.log("info", f"    Updated tag: {tag.name} ({slug})")
 
         self._tag_cache[slug] = tag
 
         if created:
-            self.log('info', f"    Created tag: {tag.name} ({slug})")
+            self.log("info", f"    Created tag: {tag.name} ({slug})")
 
         return tag
 
     def _make_tag_slug(self, profile_name):
         """Creates a valid NetBox tag slug from a profile name."""
-        sanitized = re.sub(r'[^a-z0-9]+', '-', profile_name.lower()).strip('-')
-        return f'{PROFILE_TAG_PREFIX}-{sanitized}'
+        sanitized = re.sub(r"[^a-z0-9]+", "-", profile_name.lower()).strip("-")
+        return f"{PROFILE_TAG_PREFIX}-{sanitized}"
 
     def _is_profile_tag_slug(self, slug):
         """Checks if a slug is one of our managed profile tags."""
-        return slug.startswith(f'{PROFILE_TAG_PREFIX}-')
+        return slug.startswith(f"{PROFILE_TAG_PREFIX}-")
 
     # ========================================================================
     # TenantGroup helpers
@@ -513,8 +521,8 @@ class ProfileSyncService:
 
     def _make_description(self, profile_data, host):
         """Creates a description for the ConfigContext from the Incus profile description."""
-        profile_desc = profile_data.get('description', '')
-        return profile_desc if profile_desc else ''
+        profile_desc = profile_data.get("description", "")
+        return profile_desc if profile_desc else ""
 
     # ========================================================================
     # Summary extractors (profile-specific, not shared)
@@ -524,10 +532,13 @@ class ProfileSyncService:
         """Extracts network device summary."""
         networks = []
         for name, device in devices.items():
-            if device.get('type') != 'nic':
+            if device.get("type") != "nic":
                 continue
-            net_info = {'name': name, 'type': device.get('nictype', device.get('type', ''))}
-            for key in ['network', 'parent', 'hwaddr', 'host_name', 'mtu', 'vlan']:
+            net_info = {
+                "name": name,
+                "type": device.get("nictype", device.get("type", "")),
+            }
+            for key in ["network", "parent", "hwaddr", "host_name", "mtu", "vlan"]:
                 if key in device:
                     net_info[key] = device[key]
             networks.append(net_info)
@@ -537,10 +548,10 @@ class ProfileSyncService:
         """Extracts storage device summary."""
         storage = []
         for name, device in devices.items():
-            if device.get('type') != 'disk':
+            if device.get("type") != "disk":
                 continue
-            disk_info = {'name': name}
-            for key in ['path', 'pool', 'source', 'size']:
+            disk_info = {"name": name}
+            for key in ["path", "pool", "source", "size"]:
                 if key in device:
                     disk_info[key] = device[key]
             storage.append(disk_info)

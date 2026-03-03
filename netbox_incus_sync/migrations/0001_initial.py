@@ -12,27 +12,59 @@ class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
-        ('extras', '0134_owner'),
-        ('virtualization', '0052_gfk_indexes'),
+        ("extras", "0134_owner"),
+        ("virtualization", "0052_gfk_indexes"),
     ]
 
     operations = [
         migrations.CreateModel(
-            name='IncusHost',
+            name="IncusHost",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False)),
-                ('created', models.DateTimeField(auto_now_add=True, null=True)),
-                ('last_updated', models.DateTimeField(auto_now=True, null=True)),
-                ('custom_field_data', models.JSONField(blank=True, default=dict, encoder=utilities.json.CustomFieldJSONEncoder)),
-                ('name', models.CharField(max_length=100, unique=True)),
-                ('socket_path', models.CharField(default='http+unix://%2Fvar%2Flib%2Fincus%2Funix.socket', max_length=255)),
-                ('enabled', models.BooleanField(default=True)),
-                ('default_cluster', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='incus_hosts', to='virtualization.cluster')),
-                ('tags', taggit.managers.TaggableManager(through='extras.TaggedItem', to='extras.Tag')),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True, primary_key=True, serialize=False
+                    ),
+                ),
+                ("created", models.DateTimeField(auto_now_add=True, null=True)),
+                ("last_updated", models.DateTimeField(auto_now=True, null=True)),
+                (
+                    "custom_field_data",
+                    models.JSONField(
+                        blank=True,
+                        default=dict,
+                        encoder=utilities.json.CustomFieldJSONEncoder,
+                    ),
+                ),
+                ("name", models.CharField(max_length=100, unique=True)),
+                (
+                    "socket_path",
+                    models.CharField(
+                        default="http+unix://%2Fvar%2Flib%2Fincus%2Funix.socket",
+                        max_length=255,
+                    ),
+                ),
+                ("enabled", models.BooleanField(default=True)),
+                (
+                    "default_cluster",
+                    models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="incus_hosts",
+                        to="virtualization.cluster",
+                    ),
+                ),
+                (
+                    "tags",
+                    taggit.managers.TaggableManager(
+                        through="extras.TaggedItem", to="extras.Tag"
+                    ),
+                ),
             ],
             options={
-                'verbose_name': 'Hôte Incus',
-                'ordering': ('name',),
+                "verbose_name": "Hôte Incus",
+                "ordering": ("name",),
             },
             bases=(netbox.models.deletion.DeleteMixin, models.Model),
         ),

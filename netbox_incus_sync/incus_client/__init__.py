@@ -37,12 +37,13 @@ class IncusClient(
 ):
     """
     Full Incus API client.
-    
+
     Composes all API domain mixins on top of the base transport layer.
     MRO ensures mixin methods can call self._request() and access
     self.base_url / self.session from IncusClientBase.
     """
+
     pass
 
 
-__all__ = ['IncusClient']
+__all__ = ["IncusClient"]

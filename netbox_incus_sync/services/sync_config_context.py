@@ -17,7 +17,12 @@ The expanded_config/expanded_devices are NO LONGER stored here,
 as they are reconstructed by NetBox's Config Context merging system.
 """
 
-from .sync_utils import sanitize_config, sanitize_devices, extract_limits, extract_security
+from .sync_utils import (
+    sanitize_config,
+    sanitize_devices,
+    extract_limits,
+    extract_security,
+)
 
 
 class ConfigContextSyncService:
@@ -48,21 +53,21 @@ class ConfigContextSyncService:
         context_data = self._build_context_data(instance_data, host)
 
         old_data = vm.local_context_data or {}
-        old_incus = old_data.get('incus', {})
-        new_incus = context_data.get('incus', {})
+        old_incus = old_data.get("incus", {})
+        new_incus = context_data.get("incus", {})
 
-        created = 'incus' not in old_data
+        created = "incus" not in old_data
 
         def normalize_for_compare(data):
             """Remove volatile fields for comparison."""
             if not data:
                 return {}
             copy = dict(data)
-            instance = copy.get('instance', {})
+            instance = copy.get("instance", {})
             if isinstance(instance, dict):
-                instance.pop('last_used_at', None)
-                instance.pop('status', None)
-                instance.pop('status_code', None)
+                instance.pop("last_used_at", None)
+                instance.pop("status", None)
+                instance.pop("status_code", None)
             return copy
 
         old_normalized = normalize_for_compare(old_incus)
@@ -70,15 +75,15 @@ class ConfigContextSyncService:
 
         if created or old_normalized != new_normalized:
             new_local_context = dict(old_data)
-            new_local_context['incus'] = context_data['incus']
+            new_local_context["incus"] = context_data["incus"]
 
             vm.local_context_data = new_local_context
-            vm.save(update_fields=['local_context_data'])
+            vm.save(update_fields=["local_context_data"])
 
             if created:
-                self.log('info', f"    Local context created for {vm.name}")
+                self.log("info", f"    Local context created for {vm.name}")
             else:
-                self.log('debug', f"    Local context updated for {vm.name}")
+                self.log("debug", f"    Local context updated for {vm.name}")
 
             return True, created
 
@@ -95,40 +100,38 @@ class ConfigContextSyncService:
         Returns:
             dict: Structured configuration data
         """
-        config = instance_data.get('config', {})
-        devices = instance_data.get('devices', {})
-        profiles = instance_data.get('profiles', [])
+        config = instance_data.get("config", {})
+        devices = instance_data.get("devices", {})
+        profiles = instance_data.get("profiles", [])
 
         context_data = {
-            'incus': {
-                'instance': {
-                    'name': instance_data.get('name', ''),
-                    'type': instance_data.get('type', 'container'),
-                    'status': instance_data.get('status', ''),
-                    'status_code': instance_data.get('status_code', 0),
-                    'location': instance_data.get('location', ''),
-                    'architecture': instance_data.get('architecture', ''),
-                    'created_at': instance_data.get('created_at', ''),
-                    'last_used_at': instance_data.get('last_used_at', ''),
-                    'stateful': instance_data.get('stateful', False),
+            "incus": {
+                "instance": {
+                    "name": instance_data.get("name", ""),
+                    "type": instance_data.get("type", "container"),
+                    "status": instance_data.get("status", ""),
+                    "status_code": instance_data.get("status_code", 0),
+                    "location": instance_data.get("location", ""),
+                    "architecture": instance_data.get("architecture", ""),
+                    "created_at": instance_data.get("created_at", ""),
+                    "last_used_at": instance_data.get("last_used_at", ""),
+                    "stateful": instance_data.get("stateful", False),
                 },
-
-                'source': {
-                    'host': host.name,
-                    'connection_type': host.connection_type,
+                "source": {
+                    "host": host.name,
+                    "connection_type": host.connection_type,
                 },
-
-                'profiles': profiles,
-
-                'instance_config': sanitize_config(config),
-                'instance_devices': sanitize_devices(devices),
-
-                'instance_limits': extract_limits(config),
-                'instance_security': extract_security(config),
+                "profiles": profiles,
+                "instance_config": sanitize_config(config),
+                "instance_devices": sanitize_devices(devices),
+                "instance_limits": extract_limits(config),
+                "instance_security": extract_security(config),
             }
         }
 
         # Remove None values for cleaner output
-        context_data['incus'] = {k: v for k, v in context_data['incus'].items() if v is not None}
+        context_data["incus"] = {
+            k: v for k, v in context_data["incus"].items() if v is not None
+        }
 
         return context_data

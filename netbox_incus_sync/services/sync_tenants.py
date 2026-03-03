@@ -19,26 +19,26 @@ from extras.models import Tag
 logger = logging.getLogger(__name__)
 
 # Base slug for the auto-created TenantGroup that holds all Incus project tenants
-INCUS_TENANT_GROUP_SLUG_PREFIX = 'incus-projects'
+INCUS_TENANT_GROUP_SLUG_PREFIX = "incus-projects"
 
 # Tag applied to tenants managed by this service
-INCUS_TENANT_TAG_SLUG = 'incus-managed'
+INCUS_TENANT_TAG_SLUG = "incus-managed"
 
 # Project features we track — these become custom field keys on the Tenant
 PROJECT_FEATURES = [
-    'features.images',
-    'features.profiles',
-    'features.networks',
-    'features.networks.zones',
-    'features.storage.volumes',
-    'features.storage.buckets',
+    "features.images",
+    "features.profiles",
+    "features.networks",
+    "features.networks.zones",
+    "features.storage.volumes",
+    "features.storage.buckets",
 ]
 
 
 class TenantSyncService:
     """
     Service to synchronize Incus projects to NetBox Tenants.
-    
+
     Creates one Tenant per project and groups them under a single
     TenantGroup "Incus Projects". The ``default`` project also gets
     a Tenant so that VMs in it are explicitly scoped.
@@ -59,16 +59,16 @@ class TenantSyncService:
         """Gets or creates the TenantGroup for a specific host's projects."""
         slug = f"{INCUS_TENANT_GROUP_SLUG_PREFIX}-{host.name}"
         name = host.name
-        
+
         tenant_group, created = TenantGroup.objects.get_or_create(
             slug=slug,
             defaults={
-                'name': name,
-                'description': f'Auto-created group for Incus host {host.name} project tenants',
-            }
+                "name": name,
+                "description": f"Auto-created group for Incus host {host.name} project tenants",
+            },
         )
         if created:
-            self.log('info', f'  TenantGroup "{name}" created')
+            self.log("info", f'  TenantGroup "{name}" created')
         return tenant_group
 
     @property
@@ -76,8 +76,7 @@ class TenantSyncService:
         """Gets or creates the 'incus-managed' tag."""
         if self._managed_tag is None:
             self._managed_tag, _ = Tag.objects.get_or_create(
-                slug=INCUS_TENANT_TAG_SLUG,
-                defaults={'name': 'Incus Managed'}
+                slug=INCUS_TENANT_TAG_SLUG, defaults={"name": "Incus Managed"}
             )
         return self._managed_tag
 
@@ -95,30 +94,30 @@ class TenantSyncService:
         Returns:
             tuple: (Tenant, created: bool)
         """
-        project_name = project_data.get('name', '')
-        description = project_data.get('description', '')
-        config = project_data.get('config', {})
+        project_name = project_data.get("name", "")
+        description = project_data.get("description", "")
+        config = project_data.get("config", {})
 
         if not project_name:
-            self.log('warning', '  Skipping project with empty name')
+            self.log("warning", "  Skipping project with empty name")
             return None, False
 
         # Build the tenant slug: "incus-<host.name>-<project_name>"
-        tenant_slug = f'incus-{host.name}-{project_name}'
+        tenant_slug = f"incus-{host.name}-{project_name}"
 
         # Extract feature flags
         features = {}
         for feature_key in PROJECT_FEATURES:
-            raw = config.get(feature_key, 'false')
-            features[feature_key] = raw.lower() == 'true'
+            raw = config.get(feature_key, "false")
+            features[feature_key] = raw.lower() == "true"
 
         # Build description
-        tenant_description = f'Incus project: {project_name}'
+        tenant_description = f"Incus project: {project_name}"
         if description:
-            tenant_description += f' — {description}'
+            tenant_description += f" — {description}"
 
         # Feature summary for description
-        isolated = [k.replace('features.', '') for k, v in features.items() if v]
+        isolated = [k.replace("features.", "") for k, v in features.items() if v]
         if isolated:
             tenant_description += f' [isolated: {", ".join(isolated)}]'
 
@@ -128,10 +127,10 @@ class TenantSyncService:
         tenant, created = Tenant.objects.get_or_create(
             slug=tenant_slug,
             defaults={
-                'name': project_name,
-                'group': tenant_group,
-                'description': tenant_description,
-            }
+                "name": project_name,
+                "group": tenant_group,
+                "description": tenant_description,
+            },
         )
 
         updated = False
@@ -144,13 +143,13 @@ class TenantSyncService:
                 updated = True
 
         # Store features in custom_field_data
-        if tenant.custom_field_data.get('incus_project_features') != features:
-            tenant.custom_field_data['incus_project_features'] = features
+        if tenant.custom_field_data.get("incus_project_features") != features:
+            tenant.custom_field_data["incus_project_features"] = features
             updated = True
 
         # Store raw project config for reference
-        if tenant.custom_field_data.get('incus_project_name') != project_name:
-            tenant.custom_field_data['incus_project_name'] = project_name
+        if tenant.custom_field_data.get("incus_project_name") != project_name:
+            tenant.custom_field_data["incus_project_name"] = project_name
             updated = True
 
         if created or updated:
@@ -161,11 +160,11 @@ class TenantSyncService:
             tenant.tags.add(self.managed_tag)
 
         if created:
-            self.log('info', f'  Tenant created: {tenant.name} (features: {features})')
+            self.log("info", f"  Tenant created: {tenant.name} (features: {features})")
         elif updated:
-            self.log('info', f'  Tenant updated: {tenant.name}')
+            self.log("info", f"  Tenant updated: {tenant.name}")
         else:
-            self.log('debug', f'  Tenant unchanged: {tenant.name}')
+            self.log("debug", f"  Tenant unchanged: {tenant.name}")
 
         return tenant, created
 
@@ -186,16 +185,16 @@ class TenantSyncService:
             }
         """
         stats = {
-            'tenants_created': 0,
-            'tenants_updated': 0,
-            'tenants_removed': 0,
-            'tenant_map': {},
+            "tenants_created": 0,
+            "tenants_updated": 0,
+            "tenants_removed": 0,
+            "tenant_map": {},
         }
 
         project_names = set()
 
         for project_data in projects_data:
-            project_name = project_data.get('name', '')
+            project_name = project_data.get("name", "")
             if not project_name:
                 continue
 
@@ -203,18 +202,19 @@ class TenantSyncService:
             tenant, created = self.sync_project_as_tenant(project_data, host)
 
             if tenant:
-                stats['tenant_map'][project_name] = tenant
+                stats["tenant_map"][project_name] = tenant
                 if created:
-                    stats['tenants_created'] += 1
+                    stats["tenants_created"] += 1
 
         # Clean up tenants for deleted projects
         removed = self._cleanup_stale_tenants(project_names, host)
-        stats['tenants_removed'] = removed
+        stats["tenants_removed"] = removed
 
-        self.log('info',
+        self.log(
+            "info",
             f"  Projects sync: {stats['tenants_created']} created, "
             f"{stats['tenants_removed']} removed, "
-            f"{len(stats['tenant_map'])} total"
+            f"{len(stats['tenant_map'])} total",
         )
 
         return stats
@@ -230,9 +230,9 @@ class TenantSyncService:
             dict: Feature flags, e.g. {'features.profiles': True, ...}
                   Returns all-False if no features stored.
         """
-        return tenant.custom_field_data.get('incus_project_features', {
-            feature: False for feature in PROJECT_FEATURES
-        })
+        return tenant.custom_field_data.get(
+            "incus_project_features", {feature: False for feature in PROJECT_FEATURES}
+        )
 
     # ========== Internal ==========
 
@@ -257,9 +257,12 @@ class TenantSyncService:
         )
 
         for tenant in managed_tenants:
-            project_name = tenant.custom_field_data.get('incus_project_name', '')
+            project_name = tenant.custom_field_data.get("incus_project_name", "")
             if project_name and project_name not in active_project_names:
-                self.log('warning', f'  Removing stale tenant: {tenant.name} (project {project_name} no longer exists)')
+                self.log(
+                    "warning",
+                    f"  Removing stale tenant: {tenant.name} (project {project_name} no longer exists)",
+                )
                 tenant.delete()
                 removed += 1
 

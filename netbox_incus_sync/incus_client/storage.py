@@ -12,10 +12,10 @@ class StorageApiMixin:
 
     def get_storage_pools(self, project=None):
         """Retrieves the list of storage pools."""
-        qs = self._build_project_query('recursion=1', project)
-        data = self._request('GET', f'/1.0/storage-pools{qs}')
-        if data.get('type') == 'sync':
-            return data.get('metadata', [])
+        qs = self._build_project_query("recursion=1", project)
+        data = self._request("GET", f"/1.0/storage-pools{qs}")
+        if data.get("type") == "sync":
+            return data.get("metadata", [])
         return []
 
     def get_storage_pool_info(self, pool_name, project=None):
@@ -31,9 +31,9 @@ class StorageApiMixin:
         """
         try:
             qs = self._build_project_query(project=project)
-            data = self._request('GET', f'/1.0/storage-pools/{pool_name}{qs}')
-            if data.get('type') == 'sync':
-                return data.get('metadata')
+            data = self._request("GET", f"/1.0/storage-pools/{pool_name}{qs}")
+            if data.get("type") == "sync":
+                return data.get("metadata")
         except Exception as e:
             logger.debug(f"Pool {pool_name} not found: {e}")
         return None
@@ -51,9 +51,9 @@ class StorageApiMixin:
         """
         try:
             qs = self._build_project_query(project=project)
-            data = self._request('GET', f'/1.0/storage-pools/{pool_name}/resources{qs}')
-            if data.get('type') == 'sync':
-                return data.get('metadata')
+            data = self._request("GET", f"/1.0/storage-pools/{pool_name}/resources{qs}")
+            if data.get("type") == "sync":
+                return data.get("metadata")
         except Exception as e:
             logger.debug(f"Unable to get resources for pool {pool_name}: {e}")
         return None
@@ -74,11 +74,11 @@ class StorageApiMixin:
         try:
             qs = self._build_project_query(project=project)
             data = self._request(
-                'GET',
-                f'/1.0/storage-pools/{pool}/volumes/{volume_type}/{volume_name}{qs}'
+                "GET",
+                f"/1.0/storage-pools/{pool}/volumes/{volume_type}/{volume_name}{qs}",
             )
-            if data.get('type') == 'sync':
-                return data.get('metadata')
+            if data.get("type") == "sync":
+                return data.get("metadata")
         except Exception as e:
             logger.debug(f"Volume {volume_type}/{volume_name} not found in {pool}: {e}")
         return None
@@ -99,13 +99,15 @@ class StorageApiMixin:
         try:
             qs = self._build_project_query(project=project)
             data = self._request(
-                'GET',
-                f'/1.0/storage-pools/{pool}/volumes/{volume_type}/{volume_name}/state{qs}'
+                "GET",
+                f"/1.0/storage-pools/{pool}/volumes/{volume_type}/{volume_name}/state{qs}",
             )
-            if data.get('type') == 'sync':
-                return data.get('metadata')
+            if data.get("type") == "sync":
+                return data.get("metadata")
         except Exception as e:
-            logger.debug(f"Unable to get state for volume {volume_type}/{volume_name} in {pool}: {e}")
+            logger.debug(
+                f"Unable to get state for volume {volume_type}/{volume_name} in {pool}: {e}"
+            )
         return None
 
     def get_storage_volumes(self, pool, recursion=1, project=None):
@@ -121,10 +123,10 @@ class StorageApiMixin:
             list: List of volumes
         """
         try:
-            qs = self._build_project_query(f'recursion={recursion}', project)
-            data = self._request('GET', f'/1.0/storage-pools/{pool}/volumes{qs}')
-            if data.get('type') == 'sync':
-                return data.get('metadata', [])
+            qs = self._build_project_query(f"recursion={recursion}", project)
+            data = self._request("GET", f"/1.0/storage-pools/{pool}/volumes{qs}")
+            if data.get("type") == "sync":
+                return data.get("metadata", [])
         except Exception as e:
             logger.debug(f"Unable to get volumes for pool {pool}: {e}")
         return []

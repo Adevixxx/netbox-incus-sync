@@ -30,63 +30,63 @@ class IncusHostFilterSet(NetBoxModelFilterSet):
     # ── Text / Choice filters ──────────────────────────────────────────
 
     name = django_filters.CharFilter(
-        lookup_expr='icontains',
-        label='Name (contains)',
+        lookup_expr="icontains",
+        label="Name (contains)",
     )
 
     connection_type = django_filters.MultipleChoiceFilter(
         choices=ConnectionTypeChoices.choices,
-        label='Connection Type',
+        label="Connection Type",
     )
 
     enabled = django_filters.BooleanFilter(
-        label='Enabled',
+        label="Enabled",
     )
 
     verify_ssl = django_filters.BooleanFilter(
-        label='Verify SSL',
+        label="Verify SSL",
     )
 
     # ── Related object filters ─────────────────────────────────────────
 
     default_cluster_id = django_filters.ModelMultipleChoiceFilter(
         queryset=Cluster.objects.all(),
-        field_name='default_cluster',
-        label='Default Cluster (ID)',
+        field_name="default_cluster",
+        label="Default Cluster (ID)",
     )
 
     default_cluster = django_filters.ModelMultipleChoiceFilter(
         queryset=Cluster.objects.all(),
-        field_name='default_cluster__name',
-        to_field_name='name',
-        label='Default Cluster (name)',
+        field_name="default_cluster__name",
+        to_field_name="name",
+        label="Default Cluster (name)",
     )
 
     default_site_id = django_filters.ModelMultipleChoiceFilter(
         queryset=Site.objects.all(),
-        field_name='default_site',
-        label='Default Site (ID)',
+        field_name="default_site",
+        label="Default Site (ID)",
     )
 
     default_site = django_filters.ModelMultipleChoiceFilter(
         queryset=Site.objects.all(),
-        field_name='default_site__name',
-        to_field_name='name',
-        label='Default Site (name)',
+        field_name="default_site__name",
+        to_field_name="name",
+        label="Default Site (name)",
     )
 
     class Meta:
         model = IncusHost
         fields = (
-            'id',
-            'name',
-            'connection_type',
-            'enabled',
-            'verify_ssl',
-            'default_cluster_id',
-            'default_cluster',
-            'default_site_id',
-            'default_site',
+            "id",
+            "name",
+            "connection_type",
+            "enabled",
+            "verify_ssl",
+            "default_cluster_id",
+            "default_cluster",
+            "default_site_id",
+            "default_site",
         )
 
     def search(self, queryset, name, value):

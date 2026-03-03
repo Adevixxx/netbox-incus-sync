@@ -13,9 +13,8 @@ from extras.models import JournalEntry
 from extras.choices import JournalEntryKindChoices
 from virtualization.models import VirtualMachine
 
-
 # Prefix used to identify journal entries created by this service
-JOURNAL_PREFIX = '[Incus Logs]'
+JOURNAL_PREFIX = "[Incus Logs]"
 
 
 class EventSyncService:
@@ -57,18 +56,20 @@ class EventSyncService:
         )
 
         if not managed_vms.exists():
-            self.log('debug', f"  No managed VMs found for host {host.name}")
+            self.log("debug", f"  No managed VMs found for host {host.name}")
             return 0
 
-        self.log('debug', f"  Scanning logs for {managed_vms.count()} instances...")
+        self.log("debug", f"  Scanning logs for {managed_vms.count()} instances...")
 
         for vm in managed_vms:
             count = self._sync_instance_logs(vm, host, client)
             logs_synced += count
 
-        self.log('info',
+        self.log(
+            "info",
             f"  Logs: {logs_synced} journal entries synced "
-            f"for {managed_vms.count()} instances")
+            f"for {managed_vms.count()} instances",
+        )
 
         return logs_synced
 
@@ -91,7 +92,7 @@ class EventSyncService:
         log_files = client.get_instance_logs(vm.name)
 
         if not log_files:
-            self.log('debug', f"    {vm.name}: no log files available")
+            self.log("debug", f"    {vm.name}: no log files available")
             return 0
 
         self._delete_old_log_entries(vm)
@@ -102,12 +103,14 @@ class EventSyncService:
             content = client.get_instance_log_content(vm.name, log_file)
 
             if not content or not content.strip():
-                self.log('debug', f"    {vm.name}/{log_file}: empty")
+                self.log("debug", f"    {vm.name}/{log_file}: empty")
                 continue
 
             self._create_log_journal_entry(vm, host, log_file, content)
             entries_created += 1
-            self.log('debug', f"    Journal: {vm.name} - {log_file} ({len(content)} bytes)")
+            self.log(
+                "debug", f"    Journal: {vm.name} - {log_file} ({len(content)} bytes)"
+            )
 
         return entries_created
 
@@ -120,7 +123,9 @@ class EventSyncService:
         ).delete()
 
         if deleted_count:
-            self.log('debug', f"    Deleted {deleted_count} old log entries for {vm.name}")
+            self.log(
+                "debug", f"    Deleted {deleted_count} old log entries for {vm.name}"
+            )
 
     def _create_log_journal_entry(self, vm, host, log_file, content):
         """
@@ -135,13 +140,12 @@ class EventSyncService:
         MAX_CONTENT_LENGTH = 10000
         if len(content) > MAX_CONTENT_LENGTH:
             content = content[-MAX_CONTENT_LENGTH:]
-            content = f"[... truncated to last {MAX_CONTENT_LENGTH} chars ...]\n{content}"
+            content = (
+                f"[... truncated to last {MAX_CONTENT_LENGTH} chars ...]\n{content}"
+            )
 
         comments = (
-            f"{JOURNAL_PREFIX}\n"
-            f"## {log_file}\n"
-            f"---\n"
-            f"```\n{content}\n```"
+            f"{JOURNAL_PREFIX}\n" f"## {log_file}\n" f"---\n" f"```\n{content}\n```"
         )
 
         JournalEntry.objects.create(

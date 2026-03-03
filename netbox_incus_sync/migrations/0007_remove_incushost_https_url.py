@@ -6,12 +6,12 @@ from django.db import migrations
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('netbox_incus_sync', '0006_incushost_sync_projects'),
+        ("netbox_incus_sync", "0006_incushost_sync_projects"),
     ]
 
     operations = [
         migrations.RemoveField(
-            model_name='incushost',
-            name='https_url',
+            model_name="incushost",
+            name="https_url",
         ),
     ]

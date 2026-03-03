@@ -21,9 +21,9 @@ class OperationsApiMixin:
             list: List of operations
         """
         try:
-            data = self._request('GET', f'/1.0/operations?recursion={recursion}')
-            if data.get('type') == 'sync':
-                metadata = data.get('metadata', {})
+            data = self._request("GET", f"/1.0/operations?recursion={recursion}")
+            if data.get("type") == "sync":
+                metadata = data.get("metadata", {})
 
                 all_operations = []
 
@@ -50,9 +50,9 @@ class OperationsApiMixin:
             dict: Operation details or None
         """
         try:
-            data = self._request('GET', f'/1.0/operations/{operation_id}')
-            if data.get('type') == 'sync':
-                return data.get('metadata')
+            data = self._request("GET", f"/1.0/operations/{operation_id}")
+            if data.get("type") == "sync":
+                return data.get("metadata")
         except Exception as e:
             logger.debug(f"Operation {operation_id} not found: {e}")
         return None

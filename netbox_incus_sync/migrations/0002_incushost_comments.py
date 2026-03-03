@@ -6,13 +6,13 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('netbox_incus_sync', '0001_initial'),
+        ("netbox_incus_sync", "0001_initial"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='incushost',
-            name='comments',
+            model_name="incushost",
+            name="comments",
             field=models.TextField(blank=True),
         ),
     ]

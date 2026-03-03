@@ -13,10 +13,10 @@ class ProfilesApiMixin:
     def get_profiles(self, recursion=1, project=None):
         """Retrieves the list of Incus profiles with their configuration."""
         try:
-            qs = self._build_project_query(f'recursion={recursion}', project)
-            data = self._request('GET', f'/1.0/profiles{qs}')
-            if data.get('type') == 'sync':
-                return data.get('metadata', [])
+            qs = self._build_project_query(f"recursion={recursion}", project)
+            data = self._request("GET", f"/1.0/profiles{qs}")
+            if data.get("type") == "sync":
+                return data.get("metadata", [])
         except Exception as e:
             logger.error(f"Unable to retrieve profiles: {e}")
         return []
@@ -25,9 +25,9 @@ class ProfilesApiMixin:
         """Retrieves details of a specific profile."""
         try:
             qs = self._build_project_query(project=project)
-            data = self._request('GET', f'/1.0/profiles/{name}{qs}')
-            if data.get('type') == 'sync':
-                return data.get('metadata')
+            data = self._request("GET", f"/1.0/profiles/{name}{qs}")
+            if data.get("type") == "sync":
+                return data.get("metadata")
         except Exception as e:
             logger.debug(f"Profile {name} not found: {e}")
         return None

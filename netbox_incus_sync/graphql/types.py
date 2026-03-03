@@ -21,7 +21,7 @@ from netbox.graphql.types import NetBoxObjectType
 from .. import models
 
 
-@strawberry_django.type(models.IncusHost, fields='__all__')
+@strawberry_django.type(models.IncusHost, fields="__all__")
 class IncusHostType(NetBoxObjectType):
     """
     GraphQL type for IncusHost.
@@ -43,6 +43,4 @@ class IncusHostType(NetBoxObjectType):
     default_cluster: Optional[
         Annotated["ClusterType", strawberry.lazy("virtualization.graphql.types")]
     ]
-    default_site: Optional[
-        Annotated["SiteType", strawberry.lazy("dcim.graphql.types")]
-    ]
+    default_site: Optional[Annotated["SiteType", strawberry.lazy("dcim.graphql.types")]]

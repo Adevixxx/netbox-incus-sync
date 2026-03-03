@@ -32,30 +32,61 @@ CONTAINER_BASIC = {
     },
     "devices": {
         "root": {"type": "disk", "path": "/", "pool": "default", "size": "10GiB"},
-        "eth0": {"type": "nic", "nictype": "bridged", "parent": "incusbr0",
-                 "name": "eth0", "hwaddr": "00:16:3e:aa:bb:cc"},
+        "eth0": {
+            "type": "nic",
+            "nictype": "bridged",
+            "parent": "incusbr0",
+            "name": "eth0",
+            "hwaddr": "00:16:3e:aa:bb:cc",
+        },
     },
     "expanded_devices": {
         "root": {"type": "disk", "path": "/", "pool": "default", "size": "10GiB"},
-        "eth0": {"type": "nic", "nictype": "bridged", "parent": "incusbr0",
-                 "name": "eth0", "hwaddr": "00:16:3e:aa:bb:cc",
-                 "host_name": "veth1234abcd"},
+        "eth0": {
+            "type": "nic",
+            "nictype": "bridged",
+            "parent": "incusbr0",
+            "name": "eth0",
+            "hwaddr": "00:16:3e:aa:bb:cc",
+            "host_name": "veth1234abcd",
+        },
     },
     "state": {
-        "status": "Running", "status_code": 103,
+        "status": "Running",
+        "status_code": 103,
         "network": {
             "eth0": {
                 "addresses": [
-                    {"family": "inet", "address": "10.0.0.100", "netmask": "24", "scope": "global"},
-                    {"family": "inet6", "address": "fd42::100", "netmask": "64", "scope": "global"},
-                    {"family": "inet6", "address": "fe80::1", "netmask": "64", "scope": "link"},
+                    {
+                        "family": "inet",
+                        "address": "10.0.0.100",
+                        "netmask": "24",
+                        "scope": "global",
+                    },
+                    {
+                        "family": "inet6",
+                        "address": "fd42::100",
+                        "netmask": "64",
+                        "scope": "global",
+                    },
+                    {
+                        "family": "inet6",
+                        "address": "fe80::1",
+                        "netmask": "64",
+                        "scope": "link",
+                    },
                 ],
                 "hwaddr": "00:16:3e:aa:bb:cc",
-                "state": "up", "type": "broadcast", "mtu": 1500,
+                "state": "up",
+                "type": "broadcast",
+                "mtu": 1500,
             },
             "lo": {
-                "addresses": [{"family": "inet", "address": "127.0.0.1", "netmask": "8"}],
-                "state": "up", "type": "loopback",
+                "addresses": [
+                    {"family": "inet", "address": "127.0.0.1", "netmask": "8"}
+                ],
+                "state": "up",
+                "type": "loopback",
             },
         },
     },
@@ -95,22 +126,41 @@ CONTAINER_STOPPED = {
 CONTAINER_MULTI_NIC = {
     **CONTAINER_BASIC,
     "name": "test-multi-nic",
-    "config": {**CONTAINER_BASIC["config"],
-               "volatile.uuid": "multinic-uuid-0000-0000-000000000001"},
-    "expanded_config": {**CONTAINER_BASIC["expanded_config"],
-                        "volatile.uuid": "multinic-uuid-0000-0000-000000000001"},
+    "config": {
+        **CONTAINER_BASIC["config"],
+        "volatile.uuid": "multinic-uuid-0000-0000-000000000001",
+    },
+    "expanded_config": {
+        **CONTAINER_BASIC["expanded_config"],
+        "volatile.uuid": "multinic-uuid-0000-0000-000000000001",
+    },
     "expanded_devices": {
         **CONTAINER_BASIC["expanded_devices"],
-        "eth1": {"type": "nic", "nictype": "bridged", "parent": "br-mgmt",
-                 "name": "eth1", "host_name": "veth5678efgh"},
+        "eth1": {
+            "type": "nic",
+            "nictype": "bridged",
+            "parent": "br-mgmt",
+            "name": "eth1",
+            "host_name": "veth5678efgh",
+        },
     },
     "state": {
         **CONTAINER_BASIC["state"],
         "network": {
             **CONTAINER_BASIC["state"]["network"],
             "eth1": {
-                "addresses": [{"family": "inet", "address": "192.168.1.50", "netmask": "24", "scope": "global"}],
-                "hwaddr": "00:16:3e:dd:ee:ff", "state": "up", "type": "broadcast", "mtu": 1500,
+                "addresses": [
+                    {
+                        "family": "inet",
+                        "address": "192.168.1.50",
+                        "netmask": "24",
+                        "scope": "global",
+                    }
+                ],
+                "hwaddr": "00:16:3e:dd:ee:ff",
+                "state": "up",
+                "type": "broadcast",
+                "mtu": 1500,
             },
         },
     },
@@ -154,19 +204,40 @@ VM_BASIC = {
     },
     "devices": {
         "root": {"type": "disk", "path": "/", "pool": "ssd-pool", "size": "100GiB"},
-        "data": {"type": "disk", "source": "db-data", "path": "/var/lib/postgresql", "pool": "nvme-pool"},
+        "data": {
+            "type": "disk",
+            "source": "db-data",
+            "path": "/var/lib/postgresql",
+            "pool": "nvme-pool",
+        },
     },
     "expanded_devices": {
         "root": {"type": "disk", "path": "/", "pool": "ssd-pool", "size": "100GiB"},
-        "data": {"type": "disk", "source": "db-data", "path": "/var/lib/postgresql", "pool": "nvme-pool"},
+        "data": {
+            "type": "disk",
+            "source": "db-data",
+            "path": "/var/lib/postgresql",
+            "pool": "nvme-pool",
+        },
         "eth0": {"type": "nic", "network": "incusbr0", "name": "eth0"},
     },
     "state": {
-        "status": "Running", "status_code": 103,
+        "status": "Running",
+        "status_code": 103,
         "network": {
             "enp5s0": {
-                "addresses": [{"family": "inet", "address": "10.0.0.200", "netmask": "24", "scope": "global"}],
-                "hwaddr": "00:16:3e:11:22:33", "state": "up", "type": "broadcast", "mtu": 1500,
+                "addresses": [
+                    {
+                        "family": "inet",
+                        "address": "10.0.0.200",
+                        "netmask": "24",
+                        "scope": "global",
+                    }
+                ],
+                "hwaddr": "00:16:3e:11:22:33",
+                "state": "up",
+                "type": "broadcast",
+                "mtu": 1500,
             },
         },
     },
@@ -175,12 +246,16 @@ VM_BASIC = {
 VM_CPU_RANGE = {
     **VM_BASIC,
     "name": "test-vm-cpurange",
-    "config": {**VM_BASIC["config"],
-               "volatile.uuid": "vm-cpurange-0000-0000-000000000001",
-               "limits.cpu": "0-3"},
-    "expanded_config": {**VM_BASIC["expanded_config"],
-                        "volatile.uuid": "vm-cpurange-0000-0000-000000000001",
-                        "limits.cpu": "0-3"},
+    "config": {
+        **VM_BASIC["config"],
+        "volatile.uuid": "vm-cpurange-0000-0000-000000000001",
+        "limits.cpu": "0-3",
+    },
+    "expanded_config": {
+        **VM_BASIC["expanded_config"],
+        "volatile.uuid": "vm-cpurange-0000-0000-000000000001",
+        "limits.cpu": "0-3",
+    },
 }
 
 
@@ -203,6 +278,11 @@ PROFILE_WEB = {
     "description": "Web server profile",
     "config": {"limits.cpu": "2", "limits.memory": "2GiB", "security.nesting": "true"},
     "devices": {
-        "eth1": {"type": "nic", "nictype": "bridged", "parent": "br-public", "name": "eth1"},
+        "eth1": {
+            "type": "nic",
+            "nictype": "bridged",
+            "parent": "br-public",
+            "name": "eth1",
+        },
     },
 }
