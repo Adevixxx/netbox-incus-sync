@@ -27,7 +27,7 @@ class InstancesApiMixin:
         data = self._request("GET", f"/1.0/instances{qs}")
 
         if data.get("type") != "sync":
-            logger.error(f"Unexpected Incus response type: {data.get('type')}")
+            logger.error("Unexpected Incus response type: %s", data.get('type'))
             return []
 
         return data.get("metadata", [])
@@ -66,7 +66,7 @@ class InstancesApiMixin:
                 logs = data.get("metadata", [])
                 return [log.split("/")[-1] for log in logs]
         except Exception as e:
-            logger.debug(f"Unable to retrieve logs for {name}: {e}")
+            logger.debug("Unable to retrieve logs for %s: %s", name, e)
         return []
 
     def get_instance_log_content(self, name, log_file, project=None):
@@ -88,7 +88,7 @@ class InstancesApiMixin:
             response.raise_for_status()
             return response.text
         except Exception as e:
-            logger.debug(f"Unable to read log {log_file} for {name}: {e}")
+            logger.debug("Unable to read log %s for %s: %s", log_file, name, e)
         return None
 
     # ========== Console / Screenshot API ==========
@@ -119,18 +119,18 @@ class InstancesApiMixin:
                 return response.content
 
             logger.warning(
-                f"Screenshot for {name}: unexpected content type {content_type}"
+                "Screenshot for %s: unexpected content type %s", name, content_type
             )
             return None
 
         except requests.exceptions.HTTPError as e:
             if e.response is not None and e.response.status_code == 400:
                 logger.debug(
-                    f"Screenshot not available for {name} (possibly a container or stopped VM)"
+                    "Screenshot not available for %s (possibly a container or stopped VM)", name
                 )
             else:
-                logger.warning(f"HTTP error getting screenshot for {name}: {e}")
+                logger.warning("HTTP error getting screenshot for %s: %s", name, e)
             return None
         except Exception as e:
-            logger.debug(f"Unable to capture screenshot for {name}: {e}")
+            logger.debug("Unable to capture screenshot for %s: %s", name, e)
             return None

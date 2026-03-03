@@ -35,7 +35,7 @@ class StorageApiMixin:
             if data.get("type") == "sync":
                 return data.get("metadata")
         except Exception as e:
-            logger.debug(f"Pool {pool_name} not found: {e}")
+            logger.debug("Pool %s not found: %s", pool_name, e)
         return None
 
     def get_storage_pool_resources(self, pool_name, project=None):
@@ -55,7 +55,7 @@ class StorageApiMixin:
             if data.get("type") == "sync":
                 return data.get("metadata")
         except Exception as e:
-            logger.debug(f"Unable to get resources for pool {pool_name}: {e}")
+            logger.debug("Unable to get resources for pool %s: %s", pool_name, e)
         return None
 
     def get_storage_volume(self, pool, volume_type, volume_name, project=None):
@@ -80,7 +80,7 @@ class StorageApiMixin:
             if data.get("type") == "sync":
                 return data.get("metadata")
         except Exception as e:
-            logger.debug(f"Volume {volume_type}/{volume_name} not found in {pool}: {e}")
+            logger.debug("Volume %s/%s not found in %s: %s", volume_type, volume_name, pool, e)
         return None
 
     def get_storage_volume_state(self, pool, volume_type, volume_name, project=None):
@@ -106,7 +106,7 @@ class StorageApiMixin:
                 return data.get("metadata")
         except Exception as e:
             logger.debug(
-                f"Unable to get state for volume {volume_type}/{volume_name} in {pool}: {e}"
+                "Unable to get state for volume %s/%s in %s: %s", volume_type, volume_name, pool, e
             )
         return None
 
@@ -128,5 +128,5 @@ class StorageApiMixin:
             if data.get("type") == "sync":
                 return data.get("metadata", [])
         except Exception as e:
-            logger.debug(f"Unable to get volumes for pool {pool}: {e}")
+            logger.debug("Unable to get volumes for pool %s: %s", pool, e)
         return []

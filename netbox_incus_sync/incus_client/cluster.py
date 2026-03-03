@@ -22,7 +22,7 @@ class ClusterApiMixin:
             if data.get("type") == "sync":
                 return data.get("metadata")
         except Exception as e:
-            logger.debug(f"No cluster configured: {e}")
+            logger.debug("No cluster configured: %s", e)
         return None
 
     def get_cluster_members(self, recursion=1):
@@ -40,7 +40,7 @@ class ClusterApiMixin:
             if data.get("type") == "sync":
                 return data.get("metadata", [])
         except Exception as e:
-            logger.debug(f"Unable to retrieve cluster members: {e}")
+            logger.debug("Unable to retrieve cluster members: %s", e)
         return []
 
     def get_cluster_member(self, name):
@@ -58,7 +58,7 @@ class ClusterApiMixin:
             if data.get("type") == "sync":
                 return data.get("metadata")
         except Exception as e:
-            logger.debug(f"Member {name} not found: {e}")
+            logger.debug("Member %s not found: %s", name, e)
         return None
 
     def get_cluster_member_state(self, name):
@@ -76,7 +76,7 @@ class ClusterApiMixin:
             if data.get("type") == "sync":
                 return data.get("metadata")
         except Exception as e:
-            logger.debug(f"Member state {name} not available: {e}")
+            logger.debug("Member state %s not available: %s", name, e)
         return None
 
     def get_cluster_groups(self, recursion=1):
@@ -94,7 +94,7 @@ class ClusterApiMixin:
             if data.get("type") == "sync":
                 return data.get("metadata", [])
         except Exception as e:
-            logger.debug(f"Unable to retrieve cluster groups: {e}")
+            logger.debug("Unable to retrieve cluster groups: %s", e)
         return []
 
     def get_cluster_group(self, name):
@@ -112,5 +112,5 @@ class ClusterApiMixin:
             if data.get("type") == "sync":
                 return data.get("metadata")
         except Exception as e:
-            logger.debug(f"Group {name} not found: {e}")
+            logger.debug("Group %s not found: %s", name, e)
         return None

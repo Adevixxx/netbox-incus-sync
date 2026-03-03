@@ -18,7 +18,7 @@ class ProfilesApiMixin:
             if data.get("type") == "sync":
                 return data.get("metadata", [])
         except Exception as e:
-            logger.error(f"Unable to retrieve profiles: {e}")
+            logger.error("Unable to retrieve profiles: %s", e)
         return []
 
     def get_profile(self, name, project=None):
@@ -29,5 +29,5 @@ class ProfilesApiMixin:
             if data.get("type") == "sync":
                 return data.get("metadata")
         except Exception as e:
-            logger.debug(f"Profile {name} not found: {e}")
+            logger.debug("Profile %s not found: %s", name, e)
         return None

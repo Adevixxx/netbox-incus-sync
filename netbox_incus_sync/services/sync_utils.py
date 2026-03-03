@@ -51,18 +51,17 @@ def parse_memory(value):
 
         if value.endswith("GIB"):
             return int(float(value[:-3]) * 1024)
-        elif value.endswith("GB"):
+        if value.endswith("GB"):
             return int(float(value[:-2]) * 1024)
-        elif value.endswith("MIB"):
+        if value.endswith("MIB"):
             return int(float(value[:-3]))
-        elif value.endswith("MB"):
+        if value.endswith("MB"):
             return int(float(value[:-2]))
-        elif value.endswith("KIB"):
+        if value.endswith("KIB"):
             return int(float(value[:-3]) / 1024)
-        elif value.endswith("KB"):
+        if value.endswith("KB"):
             return int(float(value[:-2]) / 1024)
-        else:
-            return int(int(value) / (1024 * 1024))
+        return int(int(value) / (1024 * 1024))
     except (ValueError, TypeError):
         return None
 

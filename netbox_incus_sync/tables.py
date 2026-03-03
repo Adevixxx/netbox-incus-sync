@@ -63,10 +63,9 @@ class IncusHostTable(NetBoxTable):
 
         if count == 0:
             return format_html('<span class="badge bg-danger text-dark">0</span>')
-        elif count == 1:
+        if count == 1:
             return format_html('<span class="badge bg-secondary text-dark">1</span>')
-        else:
-            return format_html('<span class="badge bg-info text-dark">{}</span>', count)
+        return format_html('<span class="badge bg-info text-dark">{}</span>', count)
 
     def render_cache_status(self, record):
         """Render the URL cache status."""
@@ -81,11 +80,10 @@ class IncusHostTable(NetBoxTable):
                 '<span class="badge bg-success text-dark" title="{}">valid</span>',
                 record.last_working_url,
             )
-        else:
-            return format_html(
-                '<span class="badge bg-warning text-dark" title="{}">expired</span>',
-                record.last_working_url,
-            )
+        return format_html(
+            '<span class="badge bg-warning text-dark" title="{}">expired</span>',
+            record.last_working_url,
+        )
 
     def render_actions(self, record):
         """Render a sync button for each host."""

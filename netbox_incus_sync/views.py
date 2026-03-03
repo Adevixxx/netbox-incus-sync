@@ -11,16 +11,15 @@ from extras.models import ImageAttachment
 from virtualization.models import VirtualMachine
 
 from .models import IncusHost
-from .forms import IncusHostForm
-from .tables import IncusHostTable
-from .jobs import SyncIncusJob, SyncEventsJob
-from .incus_client import IncusClient
 from .forms import (
     IncusHostForm,
     IncusHostFilterForm,
     IncusHostBulkEditForm,
     IncusHostImportForm,
 )
+from .tables import IncusHostTable
+from .jobs import SyncIncusJob, SyncEventsJob
+from .incus_client import IncusClient
 from .filtersets import IncusHostFilterSet
 
 # ============================================
@@ -138,9 +137,7 @@ class IncusHostDeleteView(generic.ObjectDeleteView):
 # Registering it again with @register_model_view causes a duplicate "Changelog" tab.
 
 
-class IncusHostBulkDeleteView(generic.BulkDeleteView):
-    queryset = IncusHost.objects.all()
-    table = IncusHostTable
+
 
 
 # ============================================
@@ -339,14 +336,14 @@ class IncusHostTestConnectionView(View):
                 try:
                     instances = client.get_instances(recursion=0)
                     extra_info["instances_count"] = len(instances)
-                except:
+                except Exception:
                     extra_info["instances_count"] = 0
 
                 # Storage pools
                 try:
                     pools = client.get_storage_pools()
                     extra_info["storage_pools"] = [p.get("name", "") for p in pools]
-                except:
+                except Exception:
                     extra_info["storage_pools"] = []
 
                 # Networks
@@ -355,7 +352,7 @@ class IncusHostTestConnectionView(View):
                     extra_info["networks"] = [
                         n.get("name", "") for n in networks if n.get("managed", False)
                     ]
-                except:
+                except Exception:
                     extra_info["networks"] = []
 
                 # Add URL cache info
@@ -447,7 +444,7 @@ class IncusHostTestAllUrlsView(View):
                 finally:
                     try:
                         test_session.close()
-                    except:
+                    except Exception:
                         pass
 
                 results.append(result)

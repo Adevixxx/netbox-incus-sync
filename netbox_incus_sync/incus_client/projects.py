@@ -25,7 +25,7 @@ class ProjectsApiMixin:
             if data.get("type") == "sync":
                 return data.get("metadata", [])
         except Exception as e:
-            logger.error(f"Unable to retrieve projects: {e}")
+            logger.error("Unable to retrieve projects: %s", e)
         return []
 
     def get_project(self, name):
@@ -43,5 +43,5 @@ class ProjectsApiMixin:
             if data.get("type") == "sync":
                 return data.get("metadata")
         except Exception as e:
-            logger.debug(f"Project {name} not found: {e}")
+            logger.debug("Project %s not found: %s", name, e)
         return None

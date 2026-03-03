@@ -8,10 +8,11 @@ This module contains the core transport layer shared by all API modules:
 - Multi-URL failover and caching logic
 """
 
-import requests
-import requests_unixsocket
 import logging
 import os
+
+import requests
+import requests_unixsocket
 
 logger = logging.getLogger(__name__)
 
@@ -125,7 +126,7 @@ class IncusClientBase:
         """Configures connection via Unix socket."""
         self.base_url = socket_url
         self.session = requests_unixsocket.Session()
-        logger.debug(f"Incus client configured in Unix socket mode: {socket_url}")
+        logger.debug("Incus client configured in Unix socket mode: %s", socket_url)
 
     def _setup_https(
         self, https_url, client_cert_path, client_key_path, ca_cert_path, verify_ssl
@@ -154,13 +155,13 @@ class IncusClientBase:
             # requests accepts a tuple (cert, key) with file paths
             # This is the recommended and secure method
             self.session.cert = (client_cert_path, client_key_path)
-            logger.debug(f"Client certificate configured: {client_cert_path}")
+            logger.debug("Client certificate configured: %s", client_cert_path)
 
         # SSL verification configuration
         if ca_cert_path and os.path.isfile(ca_cert_path):
             # Use a specific CA to validate the server
             self.session.verify = ca_cert_path
-            logger.debug(f"Custom CA configured: {ca_cert_path}")
+            logger.debug("Custom CA configured: %s", ca_cert_path)
         else:
             self.session.verify = verify_ssl
             if not verify_ssl:
@@ -172,7 +173,7 @@ class IncusClientBase:
 
                 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-        logger.debug(f"Incus client configured in HTTPS mode: {https_url}")
+        logger.debug("Incus client configured in HTTPS mode: %s", https_url)
 
     # ========== HTTP Transport ==========
 
@@ -186,25 +187,25 @@ class IncusClientBase:
             return response.json()
 
         except requests.exceptions.SSLError as e:
-            logger.error(f"SSL error connecting to {url}: {e}")
+            logger.error("SSL error connecting to %s: %s", url, e)
             # Invalidate cache on SSL errors
             if self._host:
                 self._host.clear_url_cache()
             raise ConnectionError(
                 f"SSL Error: {e}. "
                 "Check certificates or CA, or disable SSL verification."
-            )
+            ) from e
         except requests.exceptions.ConnectionError as e:
-            logger.error(f"Unable to connect to {url}: {e}")
+            logger.error("Unable to connect to %s: %s", url, e)
             # Invalidate cache on connection errors
             if self._host:
                 self._host.clear_url_cache()
-            raise ConnectionError(f"Unable to connect to Incus: {e}")
+            raise ConnectionError(f"Unable to connect to Incus: {e}") from e
         except requests.exceptions.Timeout as e:
-            logger.error(f"Timeout connecting to {url}: {e}")
-            raise ConnectionError(f"Connection timeout to Incus: {e}")
+            logger.error("Timeout connecting to %s: %s", url, e)
+            raise ConnectionError(f"Connection timeout to Incus: {e}") from e
         except Exception as e:
-            logger.error(f"Error requesting {url}: {e}")
+            logger.error("Error requesting %s: %s", url, e)
             raise
 
     # ========== Multi-URL Management ==========
@@ -232,7 +233,7 @@ class IncusClientBase:
 
         # Check if cache is valid - using is_url_cache_valid() method
         if host.is_url_cache_valid():
-            logger.debug(f"Using cached URL: {host.last_working_url}")
+            logger.debug("Using cached URL: %s", host.last_working_url)
             return host.last_working_url
 
         # Reorder URLs: put cached URL first if it exists
@@ -240,20 +241,19 @@ class IncusClientBase:
             urls = [host.last_working_url] + [
                 u for u in urls if u != host.last_working_url
             ]
-            logger.debug(f"Testing {len(urls)} URLs, cached URL first")
+            logger.debug("Testing %d URLs, cached URL first", len(urls))
         else:
-            logger.debug(f"Testing {len(urls)} URLs")
+            logger.debug("Testing %d URLs", len(urls))
 
         # Test each URL
         for url in urls:
             if self._test_url_connection(url, host):
-                logger.info(f"Working URL found: {url}")
+                logger.info("Working URL found: %s", url)
                 host.update_working_url(url)
                 return url
-            else:
-                logger.debug(f"URL failed: {url}")
+            logger.debug("URL failed: %s", url)
 
-        logger.error(f"No working URL found among {len(urls)} URLs")
+        logger.error("No working URL found among %d URLs", len(urls))
         return None
 
     def _test_url_connection(self, url, host):
@@ -300,16 +300,16 @@ class IncusClientBase:
             return False
 
         except requests.exceptions.SSLError as e:
-            logger.debug(f"SSL error testing {url}: {e}")
+            logger.debug("SSL error testing %s: %s", url, e)
             return False
         except requests.exceptions.ConnectionError as e:
-            logger.debug(f"Connection error testing {url}: {e}")
+            logger.debug("Connection error testing %s: %s", url, e)
             return False
         except requests.exceptions.Timeout as e:
-            logger.debug(f"Timeout testing {url}: {e}")
+            logger.debug("Timeout testing %s: %s", url, e)
             return False
         except Exception as e:
-            logger.debug(f"Error testing {url}: {e}")
+            logger.debug("Error testing %s: %s", url, e)
             return False
         finally:
             if test_session:

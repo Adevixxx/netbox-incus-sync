@@ -36,7 +36,7 @@ class OperationsApiMixin:
 
                 return all_operations
         except Exception as e:
-            logger.debug(f"Unable to retrieve operations: {e}")
+            logger.debug("Unable to retrieve operations: %s", e)
         return []
 
     def get_operation(self, operation_id):
@@ -54,5 +54,5 @@ class OperationsApiMixin:
             if data.get("type") == "sync":
                 return data.get("metadata")
         except Exception as e:
-            logger.debug(f"Operation {operation_id} not found: {e}")
+            logger.debug("Operation %s not found: %s", operation_id, e)
         return None
