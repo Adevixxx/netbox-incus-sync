@@ -1,4 +1,3 @@
-from django.contrib.auth.models import User
 from utilities.testing import TestCase
 from dcim.models import Site
 from virtualization.models import Cluster, ClusterType

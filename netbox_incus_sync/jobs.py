@@ -196,7 +196,7 @@ class SyncIncusJob(JobRunner):
             if cluster:
                 self.logger.info(f"  NetBox Cluster: {cluster.name}")
             else:
-                self.logger.info(f"  No cluster (VMs created without cluster)")
+                self.logger.info("  No cluster (VMs created without cluster)")
 
             all_incus_uuids = set()
 
@@ -244,7 +244,7 @@ class SyncIncusJob(JobRunner):
                     stats["vlans_created"] += net_stats["vlans_created"]
                 else:
                     self.logger.info(
-                        f"    Networks inherited from default (features.networks=false)"
+                        "    Networks inherited from default (features.networks=false)"
                     )
 
                 # ====================================================
@@ -259,7 +259,7 @@ class SyncIncusJob(JobRunner):
                     stats["profiles_removed"] += profile_stats["profiles_removed"]
                 else:
                     self.logger.info(
-                        f"    Profiles inherited from default (features.profiles=false)"
+                        "    Profiles inherited from default (features.profiles=false)"
                     )
 
                 # ====================================================
