@@ -195,7 +195,7 @@
                                 {{ object.default_cluster }}
                             </a>
                             {% else %}
-                            <span class="text-body-secondary">Auto (created from Incus if cluster mode)</span>
+                            <span class="text-body-secondary">Auto (one cluster per host)</span>
                             {% endif %}
                         </td>
                     </tr>
@@ -220,11 +220,9 @@
                     <i class="mdi mdi-information-outline"></i>
                     <strong>Cluster behavior:</strong>
                     <ul class="mb-0 mt-2">
-                        <li>If Incus is in <strong>cluster mode</strong>: a NetBox Cluster is created automatically</li>
-                        <li>If Incus is <strong>standalone</strong>: VMs are created without a cluster (unless you set a
-                            default cluster above)</li>
-                        <li>Cluster <strong>nodes</strong> are mapped to NetBox Devices (auto-created if Default Site is
-                            set)</li>
+                        <li>A NetBox <strong>Cluster</strong> is always created automatically, named after this host</li>
+                        <li>All synced VMs are assigned to this cluster</li>
+                        <li>If Incus is in <strong>cluster mode</strong>: nodes are mapped to NetBox Devices (auto-created if Default Site is set)</li>
                     </ul>
                 </div>
             </div>
