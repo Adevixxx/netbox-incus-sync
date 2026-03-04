@@ -14,43 +14,44 @@ jobs:
       postgres:
         image: postgres:16
         env:
-          POSTGRES_DB: netbox
           POSTGRES_USER: netbox
           POSTGRES_PASSWORD: netbox
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
+          POSTGRES_DB: netbox
         ports:
           - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U netbox"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
 
       redis:
         image: redis:7
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
         ports:
           - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout plugin
+        uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: Clone and install NetBox
+      - name: Clone NetBox
         run: |
-          git clone --depth 1 --branch v4.2.0 https://github.com/netbox-community/netbox.git /tmp/netbox
-          pip install -r /tmp/netbox/requirements.txt
+          git clone --depth 1 --branch v4.5.1 \
+            https://github.com/netbox-community/netbox.git /opt/netbox
 
-      - name: Create NetBox configuration
+      - name: Configure NetBox
         run: |
-          cat > /tmp/netbox/netbox/netbox/configuration.py << 'EOF'
+          cat > /opt/netbox/netbox/netbox/configuration.py << 'EOF'
           ALLOWED_HOSTS = ['*']
           DATABASE = {
               'NAME': 'netbox',
@@ -71,19 +72,27 @@ jobs:
                   'DATABASE': 1,
               },
           }
-          SECRET_KEY = 'ci-dummy-secret-key-not-for-production-use-1234567890'
+          SECRET_KEY = 'ci-test-secret-key-not-for-production-use-only-must-be-at-least-fifty-characters-long!'
           PLUGINS = ['netbox_incus_sync']
           EOF
 
-      - name: Install plugin and lint dependencies
+      - name: Install system dependencies
         run: |
+          sudo apt-get update
+          sudo apt-get install -y libpq-dev
+
+      - name: Install dependencies
+        run: |
+          cd /opt/netbox
+          python -m pip install --upgrade pip wheel
+          sed -i 's/psycopg\[c/psycopg\[binary/g' requirements.txt
+          pip install -r requirements.txt
           pip install pylint pylint-django
-          pip install requests requests-unixsocket
-          pip install -e .
+          pip install -e ${{ github.workspace }}
 
       - name: Run Pylint
         run: |
-          SCORE=$(PYTHONPATH=/tmp/netbox/netbox pylint \
+          SCORE=$(PYTHONPATH=/opt/netbox/netbox pylint \
             --load-plugins pylint_django \
             --django-settings-module=netbox.settings \
             netbox_incus_sync/ \
@@ -114,7 +123,7 @@ jobs:
         uses: schneegans/dynamic-badges-action@v1.7.0
         with:
           auth: ${{ secrets.GIST_SECRET }}
-          gistID: <YOUR_GIST_ID>
+          gistID: 2fdad721bdc8ce07f0ceaf198eda22c6
           filename: pylint-badge.json
           label: pylint
           message: "${{ env.PYLINT_SCORE }}/10"
