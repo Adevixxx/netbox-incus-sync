@@ -135,6 +135,18 @@ class IncusHost(NetBoxModel):
         help_text='Projects to sync (empty = all). Example: ["default", "prod"]',
     )
 
+    # ========== Incus UI Integration ==========
+    incus_ui_base_url = models.URLField(
+        max_length=500,
+        blank=True,
+        verbose_name="Incus UI Base URL",
+        help_text=(
+            "Base URL of the Incus web UI (e.g. https://incus.example.com:8443). "
+            "Used to generate direct links to instances, profiles, networks, etc. "
+            "Leave blank to disable UI links."
+        ),
+    )
+
     class Meta:
         ordering = ("name",)
         verbose_name = "Incus Host"
