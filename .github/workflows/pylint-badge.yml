@@ -1,0 +1,122 @@
+name: Pylint Score Badge
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  pylint:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: netbox
+          POSTGRES_USER: netbox
+          POSTGRES_PASSWORD: netbox
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+      redis:
+        image: redis:7
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Clone and install NetBox
+        run: |
+          git clone --depth 1 --branch v4.2.0 https://github.com/netbox-community/netbox.git /tmp/netbox
+          pip install -r /tmp/netbox/requirements.txt
+
+      - name: Create NetBox configuration
+        run: |
+          cat > /tmp/netbox/netbox/netbox/configuration.py << 'EOF'
+          ALLOWED_HOSTS = ['*']
+          DATABASE = {
+              'NAME': 'netbox',
+              'USER': 'netbox',
+              'PASSWORD': 'netbox',
+              'HOST': 'localhost',
+              'PORT': '5432',
+          }
+          REDIS = {
+              'tasks': {
+                  'HOST': 'localhost',
+                  'PORT': 6379,
+                  'DATABASE': 0,
+              },
+              'caching': {
+                  'HOST': 'localhost',
+                  'PORT': 6379,
+                  'DATABASE': 1,
+              },
+          }
+          SECRET_KEY = 'ci-dummy-secret-key-not-for-production-use-1234567890'
+          PLUGINS = ['netbox_incus_sync']
+          EOF
+
+      - name: Install plugin and lint dependencies
+        run: |
+          pip install pylint pylint-django
+          pip install requests requests-unixsocket
+          pip install -e .
+
+      - name: Run Pylint
+        run: |
+          SCORE=$(PYTHONPATH=/tmp/netbox/netbox pylint \
+            --load-plugins pylint_django \
+            --django-settings-module=netbox.settings \
+            netbox_incus_sync/ \
+            2>/dev/null | tail -n 2 | grep -oP '[\d.]+(?=/10)' || echo "0")
+
+          echo "PYLINT_SCORE=$SCORE" >> "$GITHUB_ENV"
+          echo "Pylint score: $SCORE/10"
+
+      - name: Determine badge color
+        run: |
+          python3 -c "
+          score = float('${{ env.PYLINT_SCORE }}')
+          if score >= 9:
+              color = 'brightgreen'
+          elif score >= 7:
+              color = 'green'
+          elif score >= 5:
+              color = 'yellow'
+          elif score >= 3:
+              color = 'orange'
+          else:
+              color = 'red'
+          print(f'BADGE_COLOR={color}')
+          " >> "$GITHUB_ENV"
+
+      - name: Update Gist
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: schneegans/dynamic-badges-action@v1.7.0
+        with:
+          auth: ${{ secrets.GIST_SECRET }}
+          gistID: <YOUR_GIST_ID>
+          filename: pylint-badge.json
+          label: pylint
+          message: "${{ env.PYLINT_SCORE }}/10"
+          color: ${{ env.BADGE_COLOR }}
+          style: flat-square

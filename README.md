@@ -1,5 +1,7 @@
 # NetBox Incus Sync
 
+[![Pylint](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/Adevixxx/2fdad721bdc8ce07f0ceaf198eda22c6/raw/pylint-badge.json)](https://github.com/Adevixxx/netbox-incus-sync/actions/workflows/pylint-badge.yml)
+
 A NetBox plugin that automatically synchronizes [Incus](https://linuxcontainers.org/incus/) containers and virtual machines into NetBox, providing a complete and up-to-date inventory of your infrastructure.
 
 ## Features
