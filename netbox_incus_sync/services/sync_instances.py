@@ -26,6 +26,8 @@ class InstanceSyncService:
         self._device_role = None
         self._device_type = None
         self._incus_version = None
+        # Deduplication tracking for repetitive warnings
+        self._warned_no_site = {}  # host.name -> set of location names
 
     def log(self, level, message):
         if self.logger:
@@ -174,12 +176,18 @@ class InstanceSyncService:
         # Auto-create the Device
         site = host.default_site
         if not site:
-            # Cannot create a Device without a site
-            self.log(
-                "warning",
-                f"  Cannot auto-create Device '{location}': no default_site configured on host '{host.name}'. "
-                f"Set a Default Site on the Incus Host to enable automatic Device creation.",
-            )
+            # Cannot create a Device without a site - deduplicate warnings
+            host_name = host.name
+            if host_name not in self._warned_no_site:
+                # First time seeing this host, log the detailed warning
+                self._warned_no_site[host_name] = set()
+                self.log(
+                    "warning",
+                    f"  Cannot auto-create Device '{location}': no default_site configured on host '{host_name}'. "
+                    f"Set a Default Site on the Incus Host to enable automatic Device creation.",
+                )
+            # Track the location name for summary
+            self._warned_no_site[host_name].add(location)
             return None
 
         device = Device.objects.create(
@@ -432,6 +440,25 @@ class InstanceSyncService:
                 self.log("info", f"  Deleted from NetBox: {vm_name}")
 
         return deleted_count
+
+    def log_deferred_warnings(self):
+        """
+        Logs summary warnings for deduplicated messages.
+
+        Call this at the end of host processing to emit summaries
+        for warnings that were deduplicated during sync.
+        """
+        # Summary for devices that couldn't be auto-created due to missing default_site
+        for host_name, locations in self._warned_no_site.items():
+            if len(locations) > 1:
+                sorted_locations = ", ".join(sorted(locations))
+                self.log(
+                    "warning",
+                    f"  {len(locations)} devices could not be auto-created for host '{host_name}' "
+                    f"(no default_site): {sorted_locations}",
+                )
+        # Clear tracking for next host
+        self._warned_no_site.clear()
 
     def _extract_cpu(self, expanded_config, config):
         """

@@ -80,7 +80,9 @@ class StorageApiMixin:
             if data.get("type") == "sync":
                 return data.get("metadata")
         except Exception as e:
-            logger.debug("Volume %s/%s not found in %s: %s", volume_type, volume_name, pool, e)
+            logger.debug(
+                "Volume %s/%s not found in %s: %s", volume_type, volume_name, pool, e
+            )
         return None
 
     def get_storage_volume_state(self, pool, volume_type, volume_name, project=None):
@@ -106,7 +108,11 @@ class StorageApiMixin:
                 return data.get("metadata")
         except Exception as e:
             logger.debug(
-                "Unable to get state for volume %s/%s in %s: %s", volume_type, volume_name, pool, e
+                "Unable to get state for volume %s/%s in %s: %s",
+                volume_type,
+                volume_name,
+                pool,
+                e,
             )
         return None
 

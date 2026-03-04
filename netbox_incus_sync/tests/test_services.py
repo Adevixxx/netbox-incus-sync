@@ -4,6 +4,7 @@ Tests for all sync services.
 
 from unittest.mock import MagicMock
 from netbox_incus_sync.tests.base import IncusSyncTestCase
+from netbox_incus_sync.models import IncusHost, ConnectionTypeChoices
 from netbox_incus_sync.services import (
     InstanceSyncService,
     NetworkSyncService,
@@ -454,6 +455,91 @@ class ProfileSyncTests(IncusSyncTestCase):
 # ====================================================================
 # Config Context Sync
 # ====================================================================
+
+
+# ====================================================================
+# Warning Deduplication
+# ====================================================================
+
+
+class WarningDeduplicationTests(IncusSyncTestCase):
+    """Tests for deduplication of repetitive warnings during sync."""
+
+    def test_resolve_device_deduplicates_no_site_warnings(self):
+        """
+        Verify that resolve_device logs only one warning per host
+        when default_site is missing, not one per call.
+        """
+        logger = MagicMock()
+        service = InstanceSyncService(logger=logger)
+        service.setup()
+
+        # Create a host without default_site
+        host_no_site = IncusHost.objects.create(
+            name="host-no-site",
+            connection_type=ConnectionTypeChoices.UNIX_SOCKET,
+            socket_path="http+unix://%2Fvar%2Flib%2Fincus%2Funix.socket",
+            default_site=None,
+            enabled=True,
+        )
+
+        # Call resolve_device 3 times with different locations
+        result1 = service.resolve_device("node1", host_no_site)
+        result2 = service.resolve_device("node2", host_no_site)
+        result3 = service.resolve_device("node3", host_no_site)
+
+        # All should return None (no device created)
+        self.assertIsNone(result1)
+        self.assertIsNone(result2)
+        self.assertIsNone(result3)
+
+        # Warning should have been called only once (not 3 times)
+        warning_calls = [
+            call
+            for call in logger.warning.call_args_list
+            if "no default_site" in str(call)
+        ]
+        self.assertEqual(len(warning_calls), 1)
+
+    def test_log_deferred_warnings_emits_summary(self):
+        """
+        Verify that log_deferred_warnings emits a summary
+        mentioning all locations that couldn't be created.
+        """
+        logger = MagicMock()
+        service = InstanceSyncService(logger=logger)
+        service.setup()
+
+        # Create a host without default_site
+        host_no_site = IncusHost.objects.create(
+            name="host-no-site-summary",
+            connection_type=ConnectionTypeChoices.UNIX_SOCKET,
+            socket_path="http+unix://%2Fvar%2Flib%2Fincus%2Funix.socket",
+            default_site=None,
+            enabled=True,
+        )
+
+        # Call resolve_device 3 times
+        service.resolve_device("node1", host_no_site)
+        service.resolve_device("node2", host_no_site)
+        service.resolve_device("node3", host_no_site)
+
+        # Reset the mock to only capture the summary warning
+        logger.reset_mock()
+
+        # Call log_deferred_warnings
+        service.log_deferred_warnings()
+
+        # A summary warning should have been logged
+        warning_calls = logger.warning.call_args_list
+        self.assertEqual(len(warning_calls), 1)
+
+        # The summary should mention all 3 nodes
+        summary_message = str(warning_calls[0])
+        self.assertIn("node1", summary_message)
+        self.assertIn("node2", summary_message)
+        self.assertIn("node3", summary_message)
+        self.assertIn("3 devices", summary_message)
 
 
 class ConfigContextSyncTests(IncusSyncTestCase):

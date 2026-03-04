@@ -27,7 +27,7 @@ class InstancesApiMixin:
         data = self._request("GET", f"/1.0/instances{qs}")
 
         if data.get("type") != "sync":
-            logger.error("Unexpected Incus response type: %s", data.get('type'))
+            logger.error("Unexpected Incus response type: %s", data.get("type"))
             return []
 
         return data.get("metadata", [])
@@ -126,7 +126,8 @@ class InstancesApiMixin:
         except requests.exceptions.HTTPError as e:
             if e.response is not None and e.response.status_code == 400:
                 logger.debug(
-                    "Screenshot not available for %s (possibly a container or stopped VM)", name
+                    "Screenshot not available for %s (possibly a container or stopped VM)",
+                    name,
                 )
             else:
                 logger.warning("HTTP error getting screenshot for %s: %s", name, e)

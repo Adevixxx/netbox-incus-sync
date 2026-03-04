@@ -132,14 +132,6 @@ class IncusHostDeleteView(generic.ObjectDeleteView):
     queryset = IncusHost.objects.all()
 
 
-# NOTE: ChangeLogView is NOT registered here explicitly.
-# NetBoxModel + get_model_urls() already provides the changelog tab automatically.
-# Registering it again with @register_model_view causes a duplicate "Changelog" tab.
-
-
-
-
-
 # ============================================
 # Synchronization Views
 # ============================================

@@ -342,6 +342,9 @@ class SyncIncusJob(JobRunner):
             deleted = instance_service.handle_deletions(cluster, host, all_incus_uuids)
             stats["instances_removed"] += deleted
 
+            # Log any deferred warnings (deduplicated)
+            instance_service.log_deferred_warnings()
+
             logs_count = event_service.sync_events(host, client)
             stats["logs_synced"] += logs_count
 
