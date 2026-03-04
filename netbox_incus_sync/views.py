@@ -21,6 +21,7 @@ from .tables import IncusHostTable
 from .jobs import SyncIncusJob, SyncEventsJob
 from .incus_client import IncusClient
 from .filtersets import IncusHostFilterSet
+from .incus_ui import get_instance_ui_url
 
 # ============================================
 # CRUD Views for IncusHost
@@ -104,6 +105,14 @@ class IncusHostView(generic.ObjectView):
         # Build VM list with screenshot info
         vm_list = []
         for vm in managed_vms:
+            # Build Incus UI URL for this instance
+            incus_ui_url = None
+            if instance.incus_ui_base_url:
+                incus_project = vm.custom_field_data.get("incus_project", "default")
+                incus_ui_url = get_instance_ui_url(
+                    instance, vm.name, project=incus_project
+                )
+
             vm_list.append(
                 {
                     "vm": vm,
@@ -112,11 +121,14 @@ class IncusHostView(generic.ObjectView):
                     ),
                     "is_vm": vm.custom_field_data.get("incus_type", "") != "container",
                     "screenshot": screenshots.get(vm.pk),
+                    "incus_ui_url": incus_ui_url,
                 }
             )
 
         context["managed_vms"] = vm_list
         context["managed_vms_count"] = managed_vms.count()
+        context["incus_ui_configured"] = bool(instance.incus_ui_base_url)
+        context["incus_ui_base_url"] = instance.incus_ui_base_url or ""
 
         return context
 

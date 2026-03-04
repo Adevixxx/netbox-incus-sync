@@ -1,0 +1,24 @@
+{% load plugins %}
+
+{# ============================================ #}
+{# Incus UI Link Panel                          #}
+{# Injected on VirtualMachine detail page via   #}
+{# PluginTemplateExtension (VMIncusUIPanel)     #}
+{# Completely independent from screenshot panel #}
+{# ============================================ #}
+
+<div class="card">
+    <h5 class="card-header">
+        <i class="mdi mdi-open-in-new"></i> Incus UI
+    </h5>
+    <div class="card-body text-center">
+        <a href="{{ incus_ui_url }}" target="_blank" rel="noopener noreferrer"
+            class="btn btn-primary" title="Open this instance in the Incus web UI">
+            <i class="mdi mdi-open-in-new"></i> Open in Incus UI
+        </a>
+        <br>
+        <small class="text-body-secondary mt-2 d-block">
+            Opens {{ vm.name }} on the Incus web interface
+        </small>
+    </div>
+</div>

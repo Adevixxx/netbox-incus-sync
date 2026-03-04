@@ -32,6 +32,7 @@ class IncusHostSerializer(NetBoxModelSerializer):
             "verify_ssl",
             "enabled",
             "default_cluster",
+            "incus_ui_base_url",
             "connection_url",
             "tags",
             "custom_fields",

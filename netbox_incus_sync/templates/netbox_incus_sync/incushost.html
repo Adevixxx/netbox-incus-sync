@@ -60,6 +60,19 @@
                             {% endif %}
                         </td>
                     </tr>
+                    {% if incus_ui_base_url %}
+                    <tr>
+                        <th scope="row">Incus UI</th>
+                        <td>
+                            <a href="{{ incus_ui_base_url }}/ui/" target="_blank"
+                                rel="noopener noreferrer" class="btn btn-sm btn-outline-info">
+                                <i class="mdi mdi-open-in-new"></i> Open Incus UI
+                            </a>
+                            <br>
+                            <small class="text-body-secondary">{{ incus_ui_base_url }}</small>
+                        </td>
+                    </tr>
+                    {% endif %}
                 </table>
             </div>
         </div>
@@ -322,6 +335,7 @@
                                     <th>Type</th>
                                     <th>Status</th>
                                     <th>VGA Screenshot</th>
+                                    {% if incus_ui_configured %}<th>Incus UI</th>{% endif %}
                                     <th>Actions</th>
                                 </tr>
                             </thead>
@@ -368,6 +382,22 @@
                                         </span>
                                         {% endif %}
                                     </td>
+                                    {% if incus_ui_configured %}
+                                    <td>
+                                        {% if item.incus_ui_url %}
+                                        <a href="{{ item.incus_ui_url }}" target="_blank"
+                                            rel="noopener noreferrer"
+                                            class="btn btn-sm btn-outline-info"
+                                            title="Open {{ item.vm.name }} in Incus UI">
+                                            <i class="mdi mdi-open-in-new"></i>
+                                        </a>
+                                        {% else %}
+                                        <span class="text-body-secondary">
+                                            <i class="mdi mdi-minus"></i>
+                                        </span>
+                                        {% endif %}
+                                    </td>
+                                    {% endif %}
                                     <td>
                                         {% if item.is_vm %}
                                         <button type="button" class="btn btn-sm btn-outline-primary screenshot-btn"

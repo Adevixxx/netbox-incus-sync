@@ -66,6 +66,7 @@ class IncusHostForm(NetBoxModelForm):
             name="HTTPS Connection - Certificates",
         ),
         FieldSet("default_cluster", "default_site", "tags", name="NetBox Association"),
+        FieldSet("incus_ui_base_url", name="Incus UI Integration"),
     )
 
     class Meta:
@@ -83,6 +84,7 @@ class IncusHostForm(NetBoxModelForm):
             "enabled",
             "default_cluster",
             "default_site",
+            "incus_ui_base_url",
             "tags",
         )
         widgets = {
@@ -104,6 +106,9 @@ class IncusHostForm(NetBoxModelForm):
             ),
             "ca_cert_path": forms.TextInput(
                 attrs={"placeholder": "/etc/netbox/incus/server.crt (optional)"}
+            ),
+            "incus_ui_base_url": forms.URLInput(
+                attrs={"placeholder": "https://incus.example.com:8443"}
             ),
         }
         help_texts = {
@@ -306,13 +311,19 @@ class IncusHostBulkEditForm(NetBoxModelBulkEditForm):
         label="Default Site",
     )
 
+    incus_ui_base_url = forms.URLField(
+        required=False,
+        label="Incus UI Base URL",
+    )
+
     fieldsets = (
         FieldSet("connection_type", "enabled", name="General"),
         FieldSet("verify_ssl", "url_cache_ttl", name="HTTPS Settings"),
         FieldSet("default_cluster", "default_site", name="NetBox Association"),
+        FieldSet("incus_ui_base_url", name="Incus UI Integration"),
     )
 
-    nullable_fields = ("default_cluster", "default_site")
+    nullable_fields = ("default_cluster", "default_site", "incus_ui_base_url")
 
 
 # ============================================
@@ -363,5 +374,6 @@ class IncusHostImportForm(NetBoxModelImportForm):
             "verify_ssl",
             "default_cluster",
             "default_site",
+            "incus_ui_base_url",
             "tags",
         )
