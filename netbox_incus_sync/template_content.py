@@ -12,7 +12,7 @@ from django.contrib.contenttypes.models import ContentType
 from extras.models import ImageAttachment
 
 from .models import IncusHost
-from .incus_ui import get_instance_ui_url
+from .incus_ui import build_incus_ui_url, get_instance_ui_url
 
 
 class VMIncusScreenshotPanel(PluginTemplateExtension):
@@ -109,4 +109,169 @@ class VMIncusUIPanel(PluginTemplateExtension):
         )
 
 
-template_extensions = [VMIncusScreenshotPanel, VMIncusUIPanel]
+class DiskIncusUIPanel(PluginTemplateExtension):
+    """Adds an "Open in Incus UI" link to the VirtualDisk detail page (storage pool)."""
+
+    models = ["virtualization.virtualdisk"]
+
+    def right_page(self):
+        disk = self.context["object"]
+        pool_name = disk.custom_field_data.get("incus_storage_pool")
+        if not pool_name:
+            return ""
+
+        vm = disk.virtual_machine
+        if not vm:
+            return ""
+
+        incus_host_name = vm.custom_field_data.get("incus_host")
+        if not incus_host_name:
+            return ""
+
+        try:
+            host = IncusHost.objects.get(name=incus_host_name, enabled=True)
+        except IncusHost.DoesNotExist:
+            return ""
+
+        if not host.incus_ui_base_url:
+            return ""
+
+        project = vm.custom_field_data.get("incus_project", "default")
+        url = build_incus_ui_url(host, "storage_pool", pool_name, project=project)
+        if not url:
+            return ""
+
+        return self.render(
+            "netbox_incus_sync/incus_ui_link_panel.html",
+            extra_context={
+                "incus_ui_url": url,
+                "object_name": pool_name,
+                "object_type_label": "Storage Pool",
+            },
+        )
+
+
+class InterfaceIncusUIPanel(PluginTemplateExtension):
+    """Adds an "Open in Incus UI" link to the VMInterface detail page (network)."""
+
+    models = ["virtualization.vminterface"]
+
+    def right_page(self):
+        iface = self.context["object"]
+        bridge_name = iface.custom_field_data.get("incus_bridge")
+        if not bridge_name:
+            return ""
+
+        vm = iface.virtual_machine
+        if not vm:
+            return ""
+
+        incus_host_name = vm.custom_field_data.get("incus_host")
+        if not incus_host_name:
+            return ""
+
+        try:
+            host = IncusHost.objects.get(name=incus_host_name, enabled=True)
+        except IncusHost.DoesNotExist:
+            return ""
+
+        if not host.incus_ui_base_url:
+            return ""
+
+        project = vm.custom_field_data.get("incus_project", "default")
+        url = build_incus_ui_url(host, "network", bridge_name, project=project)
+        if not url:
+            return ""
+
+        return self.render(
+            "netbox_incus_sync/incus_ui_link_panel.html",
+            extra_context={
+                "incus_ui_url": url,
+                "object_name": bridge_name,
+                "object_type_label": "Network",
+            },
+        )
+
+
+class ProfileIncusUIPanel(PluginTemplateExtension):
+    """Adds an "Open in Incus UI" link to the ConfigContext detail page (profile)."""
+
+    models = ["extras.configcontext"]
+
+    def right_page(self):
+        config_context = self.context["object"]
+        profile_name = config_context.name
+
+        # Find host via TenantGroups with slug starting with "incus-projects-"
+        host = None
+        for tg in config_context.tenant_groups.all():
+            if tg.slug.startswith("incus-projects-"):
+                host_name = tg.slug.removeprefix("incus-projects-")
+                try:
+                    host = IncusHost.objects.get(name=host_name, enabled=True)
+                except IncusHost.DoesNotExist:
+                    continue
+                break
+
+        if not host or not host.incus_ui_base_url:
+            return ""
+
+        url = build_incus_ui_url(host, "profile", profile_name, project="default")
+        if not url:
+            return ""
+
+        return self.render(
+            "netbox_incus_sync/incus_ui_link_panel.html",
+            extra_context={
+                "incus_ui_url": url,
+                "object_name": profile_name,
+                "object_type_label": "Profile",
+            },
+        )
+
+
+class TenantIncusUIPanel(PluginTemplateExtension):
+    """Adds an "Open in Incus UI" link to the Tenant detail page (project)."""
+
+    models = ["tenancy.tenant"]
+
+    def right_page(self):
+        tenant = self.context["object"]
+        project_name = tenant.custom_field_data.get("incus_project_name")
+        if not project_name:
+            return ""
+
+        # Find host via the tenant's TenantGroup
+        host = None
+        if tenant.group and tenant.group.slug.startswith("incus-projects-"):
+            host_name = tenant.group.slug.removeprefix("incus-projects-")
+            try:
+                host = IncusHost.objects.get(name=host_name, enabled=True)
+            except IncusHost.DoesNotExist:
+                pass
+
+        if not host or not host.incus_ui_base_url:
+            return ""
+
+        url = build_incus_ui_url(host, "project", project_name)
+        if not url:
+            return ""
+
+        return self.render(
+            "netbox_incus_sync/incus_ui_link_panel.html",
+            extra_context={
+                "incus_ui_url": url,
+                "object_name": project_name,
+                "object_type_label": "Project",
+            },
+        )
+
+
+template_extensions = [
+    VMIncusScreenshotPanel,
+    VMIncusUIPanel,
+    DiskIncusUIPanel,
+    InterfaceIncusUIPanel,
+    ProfileIncusUIPanel,
+    TenantIncusUIPanel,
+]
