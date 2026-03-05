@@ -95,6 +95,12 @@ You can configure **multiple URLs** (one per line) for failover. The plugin test
 
 Go to **Plugins → Incus Sync → Incus Hosts** and click the **Sync** button in the top bar to synchronize all enabled hosts, or use the sync button on an individual host's detail page.
 
+### Scheduled synchronization
+
+Each Incus host can be configured with a **sync interval** to enable automatic periodic synchronization. Go to the host edit page and select an interval from the **Sync Interval** dropdown (minutely, hourly, 12 hours, daily, weekly, or 30 days). Setting it to blank disables automatic sync.
+
+The scheduling uses NetBox's native job system — no external cron or Celery setup is needed. The NetBox RQ worker (`netbox-rq` / `python manage.py rqworker`) handles job execution automatically. The "Sync Now" button remains available for on-demand synchronization alongside any scheduled jobs.
+
 ### Viewing results
 
 | Data | Where in NetBox |

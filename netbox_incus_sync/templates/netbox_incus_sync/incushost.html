@@ -60,6 +60,17 @@
                             {% endif %}
                         </td>
                     </tr>
+                    <tr>
+                        <th scope="row">Sync Interval</th>
+                        <td>
+                            {% if object.sync_interval %}
+                            <span class="badge bg-info text-dark">{{ object.get_sync_interval_display }}</span>
+                            {% else %}
+                            <span class="badge bg-secondary text-dark">Disabled</span>
+                            <br><small class="text-body-secondary">Use "Sync Host" for manual sync</small>
+                            {% endif %}
+                        </td>
+                    </tr>
                     {% if incus_ui_base_url %}
                     <tr>
                         <th scope="row">Incus UI</th>

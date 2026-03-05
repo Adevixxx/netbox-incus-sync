@@ -3,6 +3,8 @@ from django.urls import reverse
 from django.core.exceptions import ValidationError
 from django.utils import timezone
 from netbox.models import NetBoxModel
+from netbox.models.features import JobsMixin
+from core.choices import JobIntervalChoices
 import os
 
 
@@ -19,7 +21,7 @@ def validate_file_exists(path):
         raise ValidationError(f"File is not readable: {path}")
 
 
-class IncusHost(NetBoxModel):
+class IncusHost(JobsMixin, NetBoxModel):
     """
     Model representing an Incus host to synchronize with NetBox.
 
@@ -135,6 +137,15 @@ class IncusHost(NetBoxModel):
         help_text='Projects to sync (empty = all). Example: ["default", "prod"]',
     )
 
+    # ========== Scheduled Synchronization ==========
+    sync_interval = models.PositiveSmallIntegerField(
+        blank=True,
+        null=True,
+        choices=JobIntervalChoices,
+        verbose_name="Sync Interval",
+        help_text="How often to automatically synchronize this host. Leave blank to disable.",
+    )
+
     # ========== Incus UI Integration ==========
     incus_ui_base_url = models.URLField(
         max_length=500,
@@ -151,6 +162,24 @@ class IncusHost(NetBoxModel):
         ordering = ("name",)
         verbose_name = "Incus Host"
         verbose_name_plural = "Incus Hosts"
+
+    def save(self, *args, **kwargs):
+        from core.choices import JobStatusChoices
+
+        # If sync_interval is cleared or host is disabled, cancel pending scheduled jobs
+        if not self._state.adding and (not self.sync_interval or not self.enabled):
+            self.jobs.filter(status__in=JobStatusChoices.ENQUEUED_STATE_CHOICES).delete()
+
+        super().save(*args, **kwargs)
+
+        # Schedule periodic sync if interval is set and host is enabled
+        if self.sync_interval and self.enabled:
+            from .jobs import SyncIncusJob
+            SyncIncusJob.enqueue_once(
+                instance=self,
+                interval=self.sync_interval,
+                host_ids=[self.pk],
+            )
 
     def __str__(self):
         return self.name

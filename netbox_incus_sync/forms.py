@@ -25,6 +25,7 @@ from utilities.forms.rendering import FieldSet
 from utilities.forms.widgets import BulkEditNullBooleanSelect
 from virtualization.models import Cluster
 from dcim.models import Site
+from core.choices import JobIntervalChoices
 from .models import IncusHost, ConnectionTypeChoices
 
 # ============================================
@@ -55,7 +56,7 @@ class IncusHostForm(NetBoxModelForm):
     )
 
     fieldsets = (
-        FieldSet("name", "connection_type", "enabled", name="General"),
+        FieldSet("name", "connection_type", "enabled", "sync_interval", name="General"),
         FieldSet("socket_path", name="Unix Socket Connection"),
         FieldSet("https_urls", "url_cache_ttl", name="HTTPS Connection - URLs"),
         FieldSet(
@@ -82,6 +83,7 @@ class IncusHostForm(NetBoxModelForm):
             "ca_cert_path",
             "verify_ssl",
             "enabled",
+            "sync_interval",
             "default_cluster",
             "default_site",
             "incus_ui_base_url",
@@ -311,19 +313,25 @@ class IncusHostBulkEditForm(NetBoxModelBulkEditForm):
         label="Default Site",
     )
 
+    sync_interval = forms.ChoiceField(
+        choices=JobIntervalChoices,
+        required=False,
+        label="Sync Interval",
+    )
+
     incus_ui_base_url = forms.URLField(
         required=False,
         label="Incus UI Base URL",
     )
 
     fieldsets = (
-        FieldSet("connection_type", "enabled", name="General"),
+        FieldSet("connection_type", "enabled", "sync_interval", name="General"),
         FieldSet("verify_ssl", "url_cache_ttl", name="HTTPS Settings"),
         FieldSet("default_cluster", "default_site", name="NetBox Association"),
         FieldSet("incus_ui_base_url", name="Incus UI Integration"),
     )
 
-    nullable_fields = ("default_cluster", "default_site", "incus_ui_base_url")
+    nullable_fields = ("default_cluster", "default_site", "incus_ui_base_url", "sync_interval")
 
 
 # ============================================
@@ -368,6 +376,7 @@ class IncusHostImportForm(NetBoxModelImportForm):
             "name",
             "connection_type",
             "enabled",
+            "sync_interval",
             "socket_path",
             "https_urls",
             "url_cache_ttl",

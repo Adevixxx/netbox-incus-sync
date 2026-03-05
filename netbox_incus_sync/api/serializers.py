@@ -31,6 +31,7 @@ class IncusHostSerializer(NetBoxModelSerializer):
             "ca_cert_path",
             "verify_ssl",
             "enabled",
+            "sync_interval",
             "default_cluster",
             "incus_ui_base_url",
             "connection_url",
