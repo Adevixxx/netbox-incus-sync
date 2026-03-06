@@ -147,15 +147,35 @@ class IncusHost(JobsMixin, NetBoxModel):
     )
 
     # ========== Incus UI Integration ==========
-    incus_ui_base_url = models.URLField(
-        max_length=500,
-        blank=True,
-        verbose_name="Incus UI Base URL",
-        help_text=(
-            "Base URL of the Incus web UI (e.g. https://incus.example.com:8443). "
-            "Used to generate direct links to instances, profiles, networks, etc. "
-            "Leave blank to disable UI links."
-        ),
+    incus_ui_instance_url = models.CharField(
+        max_length=500, blank=True,
+        verbose_name="Instance URL Template",
+        help_text="Placeholders: {host}, {project}, {name}",
+    )
+    incus_ui_profile_url = models.CharField(
+        max_length=500, blank=True,
+        verbose_name="Profile URL Template",
+        help_text="Placeholders: {host}, {project}, {name}",
+    )
+    incus_ui_network_url = models.CharField(
+        max_length=500, blank=True,
+        verbose_name="Network URL Template",
+        help_text="Placeholders: {host}, {project}, {name}",
+    )
+    incus_ui_storage_pool_url = models.CharField(
+        max_length=500, blank=True,
+        verbose_name="Storage Pool URL Template",
+        help_text="Placeholders: {host}, {project}, {name}",
+    )
+    incus_ui_storage_volume_url = models.CharField(
+        max_length=500, blank=True,
+        verbose_name="Storage Volume URL Template",
+        help_text="Placeholders: {host}, {project}, {pool}, {name}",
+    )
+    incus_ui_project_url = models.CharField(
+        max_length=500, blank=True,
+        verbose_name="Project URL Template",
+        help_text="Placeholders: {host}, {name}",
     )
 
     class Meta:
@@ -168,13 +188,16 @@ class IncusHost(JobsMixin, NetBoxModel):
 
         # If sync_interval is cleared or host is disabled, cancel pending scheduled jobs
         if not self._state.adding and (not self.sync_interval or not self.enabled):
-            self.jobs.filter(status__in=JobStatusChoices.ENQUEUED_STATE_CHOICES).delete()
+            self.jobs.filter(
+                status__in=JobStatusChoices.ENQUEUED_STATE_CHOICES
+            ).delete()
 
         super().save(*args, **kwargs)
 
         # Schedule periodic sync if interval is set and host is enabled
         if self.sync_interval and self.enabled:
             from .jobs import SyncIncusJob
+
             SyncIncusJob.enqueue_once(
                 instance=self,
                 interval=self.sync_interval,
@@ -200,6 +223,24 @@ class IncusHost(JobsMixin, NetBoxModel):
                 return f"{urls[0]} (+{len(urls)-1} more)"
             return "No URL configured"
         return self.socket_path
+
+    @property
+    def incus_ui_host_url(self):
+        """
+        Resolves the {host} placeholder value for Incus UI URLs.
+
+        Priority:
+        1. last_working_url (cached, known to work) - for HTTPS
+        2. First configured HTTPS URL
+        3. None (cannot resolve)
+        """
+        if self.connection_type == "https":
+            if self.last_working_url:
+                return self.last_working_url.rstrip("/")
+            urls = self.get_https_urls()
+            if urls:
+                return urls[0].rstrip("/")
+        return None
 
     # ========== Multi-URL Methods ==========
 

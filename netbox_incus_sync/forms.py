@@ -67,7 +67,15 @@ class IncusHostForm(NetBoxModelForm):
             name="HTTPS Connection - Certificates",
         ),
         FieldSet("default_cluster", "default_site", "tags", name="NetBox Association"),
-        FieldSet("incus_ui_base_url", name="Incus UI Integration"),
+        FieldSet(
+            "incus_ui_instance_url",
+            "incus_ui_profile_url",
+            "incus_ui_network_url",
+            "incus_ui_storage_pool_url",
+            "incus_ui_storage_volume_url",
+            "incus_ui_project_url",
+            name="Incus UI Integration",
+        ),
     )
 
     class Meta:
@@ -86,7 +94,12 @@ class IncusHostForm(NetBoxModelForm):
             "sync_interval",
             "default_cluster",
             "default_site",
-            "incus_ui_base_url",
+            "incus_ui_instance_url",
+            "incus_ui_profile_url",
+            "incus_ui_network_url",
+            "incus_ui_storage_pool_url",
+            "incus_ui_storage_volume_url",
+            "incus_ui_project_url",
             "tags",
         )
         widgets = {
@@ -109,8 +122,23 @@ class IncusHostForm(NetBoxModelForm):
             "ca_cert_path": forms.TextInput(
                 attrs={"placeholder": "/etc/netbox/incus/server.crt (optional)"}
             ),
-            "incus_ui_base_url": forms.URLInput(
-                attrs={"placeholder": "https://incus.example.com:8443"}
+            "incus_ui_instance_url": forms.TextInput(
+                attrs={"placeholder": "{host}/ui/project/{project}/instance/{name}"}
+            ),
+            "incus_ui_profile_url": forms.TextInput(
+                attrs={"placeholder": "{host}/ui/project/{project}/profile/{name}"}
+            ),
+            "incus_ui_network_url": forms.TextInput(
+                attrs={"placeholder": "{host}/ui/project/{project}/network/{name}"}
+            ),
+            "incus_ui_storage_pool_url": forms.TextInput(
+                attrs={"placeholder": "{host}/ui/project/{project}/storage/pool/{name}"}
+            ),
+            "incus_ui_storage_volume_url": forms.TextInput(
+                attrs={"placeholder": "{host}/ui/project/{project}/storage/pool/{pool}/volumes/custom/{name}"}
+            ),
+            "incus_ui_project_url": forms.TextInput(
+                attrs={"placeholder": "{host}/ui/project/{name}"}
             ),
         }
         help_texts = {
@@ -319,19 +347,39 @@ class IncusHostBulkEditForm(NetBoxModelBulkEditForm):
         label="Sync Interval",
     )
 
-    incus_ui_base_url = forms.URLField(
-        required=False,
-        label="Incus UI Base URL",
-    )
+    incus_ui_instance_url = forms.CharField(required=False, label="Instance URL Template")
+    incus_ui_profile_url = forms.CharField(required=False, label="Profile URL Template")
+    incus_ui_network_url = forms.CharField(required=False, label="Network URL Template")
+    incus_ui_storage_pool_url = forms.CharField(required=False, label="Storage Pool URL Template")
+    incus_ui_storage_volume_url = forms.CharField(required=False, label="Storage Volume URL Template")
+    incus_ui_project_url = forms.CharField(required=False, label="Project URL Template")
 
     fieldsets = (
         FieldSet("connection_type", "enabled", "sync_interval", name="General"),
         FieldSet("verify_ssl", "url_cache_ttl", name="HTTPS Settings"),
         FieldSet("default_cluster", "default_site", name="NetBox Association"),
-        FieldSet("incus_ui_base_url", name="Incus UI Integration"),
+        FieldSet(
+            "incus_ui_instance_url",
+            "incus_ui_profile_url",
+            "incus_ui_network_url",
+            "incus_ui_storage_pool_url",
+            "incus_ui_storage_volume_url",
+            "incus_ui_project_url",
+            name="Incus UI Integration",
+        ),
     )
 
-    nullable_fields = ("default_cluster", "default_site", "incus_ui_base_url", "sync_interval")
+    nullable_fields = (
+        "default_cluster",
+        "default_site",
+        "sync_interval",
+        "incus_ui_instance_url",
+        "incus_ui_profile_url",
+        "incus_ui_network_url",
+        "incus_ui_storage_pool_url",
+        "incus_ui_storage_volume_url",
+        "incus_ui_project_url",
+    )
 
 
 # ============================================
@@ -383,6 +431,11 @@ class IncusHostImportForm(NetBoxModelImportForm):
             "verify_ssl",
             "default_cluster",
             "default_site",
-            "incus_ui_base_url",
+            "incus_ui_instance_url",
+            "incus_ui_profile_url",
+            "incus_ui_network_url",
+            "incus_ui_storage_pool_url",
+            "incus_ui_storage_volume_url",
+            "incus_ui_project_url",
             "tags",
         )

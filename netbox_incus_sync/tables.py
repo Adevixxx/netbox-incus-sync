@@ -69,8 +69,12 @@ class IncusHostTable(NetBoxTable):
     def render_sync_interval(self, record):
         """Render sync interval as human-readable label."""
         if record.sync_interval is None:
-            return format_html('<span class="badge bg-secondary text-dark">Disabled</span>')
-        label = SYNC_INTERVAL_LABELS.get(record.sync_interval, f"{record.sync_interval} min")
+            return format_html(
+                '<span class="badge bg-secondary text-dark">Disabled</span>'
+            )
+        label = SYNC_INTERVAL_LABELS.get(
+            record.sync_interval, f"{record.sync_interval} min"
+        )
         return format_html('<span class="badge bg-info text-dark">{}</span>', label)
 
     def render_url_count(self, record):

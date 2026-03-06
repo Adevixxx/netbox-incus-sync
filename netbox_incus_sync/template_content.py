@@ -4,7 +4,7 @@ Template extensions for the Incus Sync plugin.
 Injects an Incus VGA Screenshot panel into the VirtualMachine detail page,
 allowing users to capture and view console screenshots directly from the VM page.
 
-Also injects an "Open in Incus UI" link panel when the host has a configured UI base URL.
+Also injects "Open in Incus UI" link panels when the host has a resolvable UI URL.
 """
 
 from netbox.plugins import PluginTemplateExtension
@@ -71,7 +71,7 @@ class VMIncusUIPanel(PluginTemplateExtension):
 
     Completely independent from the screenshot panel.
     Shows for ALL Incus-managed instances (VMs and containers).
-    Only shows when the IncusHost has incus_ui_base_url configured.
+    Only shows when the IncusHost has a resolvable UI host URL.
     """
 
     models = ["virtualization.virtualmachine"]
@@ -79,21 +79,15 @@ class VMIncusUIPanel(PluginTemplateExtension):
     def right_page(self):
         vm = self.context["object"]
 
-        # Only show for Incus-managed instances
         incus_host_name = vm.custom_field_data.get("incus_host")
         if not incus_host_name:
             return ""
 
-        # Find the host and check if UI URL is configured
         try:
             host = IncusHost.objects.get(name=incus_host_name, enabled=True)
         except IncusHost.DoesNotExist:
             return ""
 
-        if not host.incus_ui_base_url:
-            return ""
-
-        # Build the UI URL
         incus_project = vm.custom_field_data.get("incus_project", "default")
         incus_ui_url = get_instance_ui_url(host, vm.name, project=incus_project)
 
@@ -131,9 +125,6 @@ class DiskIncusUIPanel(PluginTemplateExtension):
         try:
             host = IncusHost.objects.get(name=incus_host_name, enabled=True)
         except IncusHost.DoesNotExist:
-            return ""
-
-        if not host.incus_ui_base_url:
             return ""
 
         project = vm.custom_field_data.get("incus_project", "default")
@@ -175,9 +166,6 @@ class InterfaceIncusUIPanel(PluginTemplateExtension):
         except IncusHost.DoesNotExist:
             return ""
 
-        if not host.incus_ui_base_url:
-            return ""
-
         project = vm.custom_field_data.get("incus_project", "default")
         url = build_incus_ui_url(host, "network", bridge_name, project=project)
         if not url:
@@ -202,7 +190,6 @@ class ProfileIncusUIPanel(PluginTemplateExtension):
         config_context = self.context["object"]
         profile_name = config_context.name
 
-        # Find host via TenantGroups with slug starting with "incus-projects-"
         host = None
         for tg in config_context.tenant_groups.all():
             if tg.slug.startswith("incus-projects-"):
@@ -213,7 +200,7 @@ class ProfileIncusUIPanel(PluginTemplateExtension):
                     continue
                 break
 
-        if not host or not host.incus_ui_base_url:
+        if not host:
             return ""
 
         url = build_incus_ui_url(host, "profile", profile_name, project="default")
@@ -241,7 +228,6 @@ class TenantIncusUIPanel(PluginTemplateExtension):
         if not project_name:
             return ""
 
-        # Find host via the tenant's TenantGroup
         host = None
         if tenant.group and tenant.group.slug.startswith("incus-projects-"):
             host_name = tenant.group.slug.removeprefix("incus-projects-")
@@ -250,7 +236,7 @@ class TenantIncusUIPanel(PluginTemplateExtension):
             except IncusHost.DoesNotExist:
                 pass
 
-        if not host or not host.incus_ui_base_url:
+        if not host:
             return ""
 
         url = build_incus_ui_url(host, "project", project_name)

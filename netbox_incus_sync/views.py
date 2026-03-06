@@ -105,13 +105,11 @@ class IncusHostView(generic.ObjectView):
         # Build VM list with screenshot info
         vm_list = []
         for vm in managed_vms:
-            # Build Incus UI URL for this instance
             incus_ui_url = None
-            if instance.incus_ui_base_url:
-                incus_project = vm.custom_field_data.get("incus_project", "default")
-                incus_ui_url = get_instance_ui_url(
-                    instance, vm.name, project=incus_project
-                )
+            incus_project = vm.custom_field_data.get("incus_project", "default")
+            incus_ui_url = get_instance_ui_url(
+                instance, vm.name, project=incus_project
+            )
 
             vm_list.append(
                 {
@@ -127,8 +125,8 @@ class IncusHostView(generic.ObjectView):
 
         context["managed_vms"] = vm_list
         context["managed_vms_count"] = managed_vms.count()
-        context["incus_ui_configured"] = bool(instance.incus_ui_base_url)
-        context["incus_ui_base_url"] = instance.incus_ui_base_url or ""
+        context["incus_ui_configured"] = bool(instance.incus_ui_host_url)
+        context["incus_ui_host_url"] = instance.incus_ui_host_url or ""
 
         return context
 

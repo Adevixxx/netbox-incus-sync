@@ -71,16 +71,16 @@
                             {% endif %}
                         </td>
                     </tr>
-                    {% if incus_ui_base_url %}
+                    {% if incus_ui_host_url %}
                     <tr>
                         <th scope="row">Incus UI</th>
                         <td>
-                            <a href="{{ incus_ui_base_url }}/ui/" target="_blank"
+                            <a href="{{ incus_ui_host_url }}/ui/" target="_blank"
                                 rel="noopener noreferrer" class="btn btn-sm btn-outline-info">
                                 <i class="mdi mdi-open-in-new"></i> Open Incus UI
                             </a>
                             <br>
-                            <small class="text-body-secondary">{{ incus_ui_base_url }}</small>
+                            <small class="text-body-secondary">{{ incus_ui_host_url }}</small>
                         </td>
                     </tr>
                     {% endif %}
