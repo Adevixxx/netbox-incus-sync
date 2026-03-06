@@ -3,15 +3,6 @@ from netbox.tables import NetBoxTable, ChoiceFieldColumn, ToggleColumn
 from django.utils.html import format_html
 from .models import IncusHost
 
-SYNC_INTERVAL_LABELS = {
-    1: "1 min",
-    60: "1 hour",
-    720: "12 hours",
-    1440: "Daily",
-    10080: "Weekly",
-    43200: "30 days",
-}
-
 
 class IncusHostTable(NetBoxTable):
     """Table for displaying Incus hosts."""
@@ -32,7 +23,9 @@ class IncusHostTable(NetBoxTable):
 
     enabled = tables.BooleanColumn(verbose_name="Enabled")
 
-    sync_interval = tables.Column(verbose_name="Sync Interval", orderable=True)
+    sync_interval = tables.Column(
+        verbose_name="Sync Interval", empty_values=(), orderable=False
+    )
 
     default_cluster = tables.Column(linkify=True, verbose_name="Cluster")
 
@@ -68,14 +61,12 @@ class IncusHostTable(NetBoxTable):
 
     def render_sync_interval(self, record):
         """Render sync interval as human-readable label."""
-        if record.sync_interval is None:
+        display = record.sync_interval_display
+        if not display:
             return format_html(
                 '<span class="badge bg-secondary text-dark">Disabled</span>'
             )
-        label = SYNC_INTERVAL_LABELS.get(
-            record.sync_interval, f"{record.sync_interval} min"
-        )
-        return format_html('<span class="badge bg-info text-dark">{}</span>', label)
+        return format_html('<span class="badge bg-info text-dark">{}</span>', display)
 
     def render_url_count(self, record):
         """Render the URL count for HTTPS connections."""

@@ -4,13 +4,24 @@ from django.core.exceptions import ValidationError
 from django.utils import timezone
 from netbox.models import NetBoxModel
 from netbox.models.features import JobsMixin
-from core.choices import JobIntervalChoices
+from utilities.choices import ChoiceSet
 import os
 
 
 class ConnectionTypeChoices(models.TextChoices):
     UNIX_SOCKET = "unix", "Unix Socket"
     HTTPS = "https", "HTTPS (TLS certificate)"
+
+
+class SyncIntervalUnitChoices(ChoiceSet):
+    UNIT_MINUTES = "minutes"
+    UNIT_HOURS = "hours"
+    UNIT_DAYS = "days"
+    CHOICES = [
+        (UNIT_MINUTES, "Minutes"),
+        (UNIT_HOURS, "Hours"),
+        (UNIT_DAYS, "Days"),
+    ]
 
 
 def validate_file_exists(path):
@@ -138,12 +149,18 @@ class IncusHost(JobsMixin, NetBoxModel):
     )
 
     # ========== Scheduled Synchronization ==========
-    sync_interval = models.PositiveSmallIntegerField(
+    sync_interval_value = models.PositiveSmallIntegerField(
         blank=True,
         null=True,
-        choices=JobIntervalChoices,
         verbose_name="Sync Interval",
         help_text="How often to automatically synchronize this host. Leave blank to disable.",
+    )
+    sync_interval_unit = models.CharField(
+        max_length=10,
+        blank=True,
+        null=True,
+        choices=SyncIntervalUnitChoices,
+        verbose_name="Interval Unit",
     )
 
     # ========== Incus UI Integration ==========
@@ -183,11 +200,38 @@ class IncusHost(JobsMixin, NetBoxModel):
         verbose_name = "Incus Host"
         verbose_name_plural = "Incus Hosts"
 
+    @property
+    def sync_interval_minutes(self):
+        """Calculates the sync interval in minutes from value + unit."""
+        if self.sync_interval_value is None:
+            return None
+        unit = self.sync_interval_unit or SyncIntervalUnitChoices.UNIT_MINUTES
+        if unit == SyncIntervalUnitChoices.UNIT_HOURS:
+            return self.sync_interval_value * 60
+        if unit == SyncIntervalUnitChoices.UNIT_DAYS:
+            return self.sync_interval_value * 1440
+        return self.sync_interval_value
+
+    @property
+    def sync_interval_display(self):
+        """Returns a human-readable sync interval string."""
+        if self.sync_interval_value is None:
+            return None
+        unit = self.sync_interval_unit or SyncIntervalUnitChoices.UNIT_MINUTES
+        label = dict(SyncIntervalUnitChoices.CHOICES).get(unit, unit)
+        if self.sync_interval_value == 1:
+            # Singularize: "Minutes" -> "minute", "Hours" -> "hour", "Days" -> "day"
+            label = label.rstrip("s").lower()
+        else:
+            label = label.lower()
+        return f"Every {self.sync_interval_value} {label}"
+
     def save(self, *args, **kwargs):
         from core.choices import JobStatusChoices
 
+        interval = self.sync_interval_minutes
         # If sync_interval is cleared or host is disabled, cancel pending scheduled jobs
-        if not self._state.adding and (not self.sync_interval or not self.enabled):
+        if not self._state.adding and (not interval or not self.enabled):
             self.jobs.filter(
                 status__in=JobStatusChoices.ENQUEUED_STATE_CHOICES
             ).delete()
@@ -195,12 +239,12 @@ class IncusHost(JobsMixin, NetBoxModel):
         super().save(*args, **kwargs)
 
         # Schedule periodic sync if interval is set and host is enabled
-        if self.sync_interval and self.enabled:
+        if interval and self.enabled:
             from .jobs import SyncIncusJob
 
             SyncIncusJob.enqueue_once(
                 instance=self,
-                interval=self.sync_interval,
+                interval=interval,
                 host_ids=[self.pk],
             )
 

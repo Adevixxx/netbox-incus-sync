@@ -25,8 +25,7 @@ from utilities.forms.rendering import FieldSet
 from utilities.forms.widgets import BulkEditNullBooleanSelect
 from virtualization.models import Cluster
 from dcim.models import Site
-from core.choices import JobIntervalChoices
-from .models import IncusHost, ConnectionTypeChoices
+from .models import IncusHost, ConnectionTypeChoices, SyncIntervalUnitChoices
 
 # ============================================
 # Create / Edit Form
@@ -56,7 +55,7 @@ class IncusHostForm(NetBoxModelForm):
     )
 
     fieldsets = (
-        FieldSet("name", "connection_type", "enabled", "sync_interval", name="General"),
+        FieldSet("name", "connection_type", "enabled", "sync_interval_value", "sync_interval_unit", name="General"),
         FieldSet("socket_path", name="Unix Socket Connection"),
         FieldSet("https_urls", "url_cache_ttl", name="HTTPS Connection - URLs"),
         FieldSet(
@@ -91,7 +90,8 @@ class IncusHostForm(NetBoxModelForm):
             "ca_cert_path",
             "verify_ssl",
             "enabled",
-            "sync_interval",
+            "sync_interval_value",
+            "sync_interval_unit",
             "default_cluster",
             "default_site",
             "incus_ui_instance_url",
@@ -140,6 +140,9 @@ class IncusHostForm(NetBoxModelForm):
             "incus_ui_project_url": forms.TextInput(
                 attrs={"placeholder": "{host}/ui/project/{name}"}
             ),
+            "sync_interval_value": forms.NumberInput(
+                attrs={"placeholder": "e.g. 30", "min": 1}
+            ),
         }
         help_texts = {
             "https_urls": (
@@ -165,6 +168,22 @@ class IncusHostForm(NetBoxModelForm):
         # S'assurer que cleaned_data existe
         if cleaned_data is None:
             return cleaned_data
+
+        # Validate sync interval: both or neither
+        interval_value = cleaned_data.get("sync_interval_value")
+        interval_unit = cleaned_data.get("sync_interval_unit")
+        if interval_value and not interval_unit:
+            raise forms.ValidationError(
+                {"sync_interval_unit": "Unit is required when a sync interval value is set."}
+            )
+        if interval_unit and not interval_value:
+            raise forms.ValidationError(
+                {"sync_interval_value": "Value is required when a sync interval unit is set."}
+            )
+        if interval_value is not None and interval_value < 1:
+            raise forms.ValidationError(
+                {"sync_interval_value": "Sync interval must be at least 1."}
+            )
 
         connection_type = cleaned_data.get("connection_type")
 
@@ -341,10 +360,16 @@ class IncusHostBulkEditForm(NetBoxModelBulkEditForm):
         label="Default Site",
     )
 
-    sync_interval = forms.ChoiceField(
-        choices=JobIntervalChoices,
+    sync_interval_value = forms.IntegerField(
         required=False,
         label="Sync Interval",
+        min_value=1,
+    )
+
+    sync_interval_unit = forms.ChoiceField(
+        choices=SyncIntervalUnitChoices,
+        required=False,
+        label="Interval Unit",
     )
 
     incus_ui_instance_url = forms.CharField(required=False, label="Instance URL Template")
@@ -355,7 +380,7 @@ class IncusHostBulkEditForm(NetBoxModelBulkEditForm):
     incus_ui_project_url = forms.CharField(required=False, label="Project URL Template")
 
     fieldsets = (
-        FieldSet("connection_type", "enabled", "sync_interval", name="General"),
+        FieldSet("connection_type", "enabled", "sync_interval_value", "sync_interval_unit", name="General"),
         FieldSet("verify_ssl", "url_cache_ttl", name="HTTPS Settings"),
         FieldSet("default_cluster", "default_site", name="NetBox Association"),
         FieldSet(
@@ -372,7 +397,8 @@ class IncusHostBulkEditForm(NetBoxModelBulkEditForm):
     nullable_fields = (
         "default_cluster",
         "default_site",
-        "sync_interval",
+        "sync_interval_value",
+        "sync_interval_unit",
         "incus_ui_instance_url",
         "incus_ui_profile_url",
         "incus_ui_network_url",
@@ -424,7 +450,8 @@ class IncusHostImportForm(NetBoxModelImportForm):
             "name",
             "connection_type",
             "enabled",
-            "sync_interval",
+            "sync_interval_value",
+            "sync_interval_unit",
             "socket_path",
             "https_urls",
             "url_cache_ttl",

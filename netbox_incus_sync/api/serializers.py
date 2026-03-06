@@ -10,6 +10,7 @@ class IncusHostSerializer(NetBoxModelSerializer):
     connection_url = serializers.ReadOnlyField()
     configured_urls = serializers.SerializerMethodField()
     url_cache_valid = serializers.SerializerMethodField()
+    sync_interval_display = serializers.ReadOnlyField()
 
     class Meta:
         model = IncusHost
@@ -31,7 +32,9 @@ class IncusHostSerializer(NetBoxModelSerializer):
             "ca_cert_path",
             "verify_ssl",
             "enabled",
-            "sync_interval",
+            "sync_interval_value",
+            "sync_interval_unit",
+            "sync_interval_display",
             "default_cluster",
             "incus_ui_instance_url",
             "incus_ui_profile_url",
